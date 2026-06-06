@@ -212,7 +212,7 @@ function renderSettings() {
     if (val) {
       apiUrl = val;
       firstLaunch = false;
-      await saveEndpoint(apiUrl);
+      saveEndpoint(apiUrl);
       showSettings = false;
       if (!refreshTimer) refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
       fetchData();
@@ -222,7 +222,7 @@ function renderSettings() {
   document.getElementById('btnReset').addEventListener('click', async () => {
     apiUrl = ``;
     document.getElementById('urlInput').value = '';
-    await saveEndpoint(apiUrl);
+    saveEndpoint(apiUrl);
     firstLaunch = true;
     renderSettings();
   });
@@ -412,54 +412,35 @@ async function fetchData() {
 
 /* ── Storage ──────────────────────────────────────────────────── */
 
-// creationStorage is injected by Rabbit OS after DOMContentLoaded — poll for it
-function waitForCreationStorage(ms = 2500) {
-  return new Promise(resolve => {
-    if (window.creationStorage) { resolve(window.creationStorage); return; }
-    const deadline = Date.now() + ms;
-    const t = setInterval(() => {
-      if (window.creationStorage) { clearInterval(t); resolve(window.creationStorage); }
-      else if (Date.now() > deadline) { clearInterval(t); resolve(null); }
-    }, 80);
-  });
-}
+// creationStorage is app-scoped on Rabbit OS (shared across all installs of the
+// same app ID) so we must NOT store personal credentials there. localStorage is
+// per-session/device and is the only safe place for the Gist URL.
+// We write to sessionStorage as well since it survives visibility changes within
+// the same WebView session even when localStorage is cleared between hard relaunches.
 
-async function saveEndpoint(url) {
+function saveEndpoint(url) {
   try { localStorage.setItem('claude_endpoint', JSON.stringify({ url })); } catch (_) {}
-  const cs = window.creationStorage || await waitForCreationStorage(1000);
-  if (cs) {
-    try { await cs.plain.setItem('endpoint', btoa(JSON.stringify({ url }))); } catch (_) {}
-  }
+  try { sessionStorage.setItem('claude_endpoint', JSON.stringify({ url })); } catch (_) {}
 }
 
-async function loadEndpoint() {
-  let found = false;
-  const cs = await waitForCreationStorage();
-  if (cs) {
+function loadEndpoint() {
+  const stores = [localStorage, sessionStorage];
+  for (const store of stores) {
     try {
-      const stored = await cs.plain.getItem('endpoint');
-      if (stored) {
-        const parsed = JSON.parse(atob(stored));
-        if (parsed.url) { apiUrl = parsed.url; found = true; }
-      }
-    } catch (_) {}
-  }
-  if (!found) {
-    try {
-      const stored = localStorage.getItem('claude_endpoint');
+      const stored = store.getItem('claude_endpoint');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.url) { apiUrl = parsed.url; found = true; }
+        if (parsed.url) { apiUrl = parsed.url; return; }
       }
     } catch (_) {}
   }
-  if (!found) firstLaunch = true;
+  firstLaunch = true;
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await loadEndpoint();
+document.addEventListener('DOMContentLoaded', () => {
+  loadEndpoint();
   if (firstLaunch) {
     showSettings = true;
     renderSettings();
