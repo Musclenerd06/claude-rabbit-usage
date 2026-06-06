@@ -30,136 +30,112 @@ No paid APIs. No cloud accounts. Just GitHub (free) and your existing Claude Cod
 
 ## Requirements
 
-- **Claude Code** installed and used on this machine (`~/.claude/projects/` must exist with `.jsonl` files)
-- **Node.js** v18 or later (`node --version` to check)
+- **Claude Code** installed and used at least once (`~/.claude/projects/` must exist with `.jsonl` files)
+- **Node.js** v18 or later — installed automatically if missing
 - **GitHub account** (free) — for the Gist relay
 - **Rabbit R1** device
 
-**Platform support:**
-- WSL2 on Windows (recommended — use `Start Bridge.ps1`)
-- Native Linux or macOS (run `node start.js` directly)
+---
+
+## Install — one command
+
+Pick the line for your OS and paste it into a terminal. That's it.
+
+### Linux / macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Musclenerd06/claude-rabbit-usage/main/install.sh | bash
+```
+
+### Windows (WSL or native — PowerShell)
+
+For WSL, open your WSL terminal and run the Linux command above.
+
+For native Windows without WSL, open PowerShell and run:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/Musclenerd06/claude-rabbit-usage/main/install.ps1 | iex
+```
+
+> **First time running PowerShell scripts?** You may need to allow scripts first:
+> `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+### What the installer does
+
+1. **Checks prerequisites** — Node.js, git, Claude Code logs. Installs Node.js automatically if it's missing (via nvm on Linux/macOS, winget on Windows).
+2. **Clones the repo** to `~/claude-rabbit-usage` — or pulls the latest update if it's already there.
+3. **Installs dependencies** — runs `npm install` for you.
+4. **Asks for a GitHub token** — the only thing you paste. Create one at [github.com/settings/tokens/new](https://github.com/settings/tokens/new) with the `gist` scope only.
+5. **Creates a Gist automatically** — no manual steps at gist.github.com.
+6. **Saves your `.env`** — credentials stored locally, never shared.
+7. **Starts the server** and verifies it's working.
+8. **Opens the dashboard** in your browser automatically at `http://localhost:5050`.
+9. **Prints a QR code** in the terminal — scan it inside the Rabbit app to connect.
+
+Running the command again on an existing install skips the token prompt and just pulls the latest code and restarts.
 
 ---
 
-## Quick install
+## After install
 
-Run this in your terminal (WSL on Windows, or native Linux/macOS):
+### Dashboard
 
-```bash
-git clone https://github.com/Musclenerd06/claude-rabbit-usage.git
-cd claude-rabbit-usage
-bash install.sh
-```
+Visit **[http://localhost:5050](http://localhost:5050)** — shows your live token usage, server status, and QR codes.
 
-The installer will:
-1. Check for Node.js and Claude Code logs
-2. Ask for a GitHub token (with `gist` scope) — **that's the only thing you need to paste**
-3. Auto-create the GitHub Gist for you
-4. Write your `.env` file
-5. Test the server and show your current usage
-6. On WSL: copy the startup script to your Windows Desktop
-7. Print a QR code you can scan with the Rabbit app
+### Install the Rabbit R1 app
 
----
+**Option A — QR code (easiest)**
+1. Open `http://localhost:5050` → click **QR Codes** tab
+2. Scan the **Add App to Rabbit R1** code with your Rabbit to install the app
+3. Scan the **Your Gist URL** code inside the app (⚙ → Scan QR) to connect it to your server
 
-## Manual setup
+**Option B — Manual via Rabbit agent**
+1. Open a Rabbit agent conversation
+2. Upload `~/claude-rabbit-usage/rabbit/main-src.js`
+3. Paste the contents of `rabbit/prompt.txt` as your message
+4. The agent applies the file and rebuilds
 
-### 1 — Create a GitHub token
+### Start the server again later
 
-1. Go to **GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)**
-2. Click **Generate new token (classic)**
-3. Name it anything (e.g. `claude-usage`)
-4. Select **only** the `gist` scope
-5. Click **Generate token** and copy it — you only see it once
-
-### 2 — Configure .env
-
-```bash
-cp .env.example .env
-nano .env
-```
-
-```env
-GITHUB_TOKEN=ghp_your_token_here
-GIST_ID=                          # leave blank — server creates it on first run
-GITHUB_USER=your_github_username
-RESET_ANCHOR_UTC=17:30            # optional — your known 5h reset time in UTC
-```
-
-> **RESET_ANCHOR_UTC** — Claude Code resets usage on fixed 5-hour windows. If you know one of your reset times (visible in `/usage` output), set it here as `HH:MM` UTC. Leave it out and the server uses a rolling window instead.
-
-### 3 — Start the server
-
-**Windows (WSL):** Double-click `Start Bridge.ps1` on your Desktop (created by the installer), or from WSL:
-```bash
-node start.js
-```
+**WSL:** Double-click `Start Claude Usage Bridge.ps1` on your Windows Desktop (the installer copies it there automatically).
 
 **Linux / macOS:**
 ```bash
-node start.js
+node ~/claude-rabbit-usage/start.js
 ```
 
-`start.js` is a launcher that automatically restarts the server if it crashes or if you trigger a restart from the dashboard.
+**Windows (PowerShell):**
+```powershell
+node $env:USERPROFILE\claude-rabbit-usage\start.js
+```
 
-### 4 — Open the dashboard
-
-Visit **[http://localhost:5050](http://localhost:5050)** in your browser. It shows:
-- Your current and weekly token usage with live bars
-- Server status and Gist push health
-- A QR code for the Rabbit app endpoint
-
-### 5 — Install the Rabbit R1 app
-
-Two options:
-
-**Option A — QR code (easiest)**
-1. Open `http://localhost:5050/qr` in your browser
-2. Show the QR code to your Rabbit R1 camera from within the app's Settings → Scan QR
-
-**Option B — Manual**
-1. Open a Rabbit agent conversation
-2. Upload `rabbit/main-src.js` from this repo
-3. Paste the contents of `rabbit/prompt.txt` as your message
-4. The agent replaces the app files and rebuilds
-
-### 6 — Connect the app to your server
-
-When the Rabbit app opens for the first time it shows Settings automatically. Either:
-- Scan the QR code from `http://localhost:5050/qr` using the in-app scanner
-- Or paste your Gist URL manually:
-  ```
-  https://gist.githubusercontent.com/YOUR_USERNAME/YOUR_GIST_ID/raw/usage.json
-  ```
-
-The URL is saved persistently — the app won't ask again on restart.
+`start.js` auto-restarts the server if it crashes or if you click Restart in the dashboard.
 
 ---
 
 ## How the Gist rate limit works
 
-GitHub limits Gist writes to **100 per hour**. The server paces pushes automatically using the `x-ratelimit-remaining` header from each response:
+GitHub limits Gist writes to **100 per hour**. The server paces pushes automatically:
 
 - Push interval = `time_until_reset / remaining`, clamped between 36s and 120s
-- On a full fresh quota this works out to exactly 100 pushes/hour
-- If you hit a rate limit, the server backs off until the exact reset timestamp GitHub provides
+- On a fresh quota this works out to exactly 100 pushes/hour
+- On a 403 rate limit, the server backs off until the exact reset timestamp GitHub provides
 
-The server logs every push:
+Logs every push:
 ```
-[gist] Pushed 24% OK  (quota: 87 left, next in ~41s)
+[gist] Pushed 55% OK  (quota: 87 left, next in ~41s)
 ```
 
 ---
 
 ## Calibration
 
-Token caps are pre-set for **Claude Max** plan. If the percentage shown differs from what `/usage` shows in Claude Code:
+Token caps are pre-set for **Claude Max** plan and back-calculated from real readings. If the percentage shown differs from what `/usage` shows in Claude Code:
 
-1. Note the exact percentage Claude Code shows: `/usage`
-2. At the same moment, check: `curl http://localhost:5050/usage/debug`
-3. Note the `current_tokens` value
-4. Calculate: `correct_cap = current_tokens / (claude_percent / 100)`
-5. Set `MAX_OUTPUT_TOKENS_5H` in `server.js` to the new value and restart
+1. Note the exact percentage Claude Code shows
+2. At the same moment, check `current_tokens` in `curl http://localhost:5050/usage`
+3. Calculate: `correct_cap = current_tokens / (claude_percent / 100)`
+4. Update `MAX_OUTPUT_TOKENS_5H` or `MAX_OUTPUT_TOKENS_7D` in `server.js` and restart
 
 ---
 
@@ -169,14 +145,14 @@ Token caps are pre-set for **Claude Max** plan. If the percentage shown differs 
 |------|---------|
 | `server.js` | Bridge server — reads logs, serves HTTP, pushes to Gist |
 | `start.js` | Launcher with auto-restart on exit code 42 |
-| `install.sh` | One-command installer (creates Gist, writes .env, tests) |
+| `install.sh` | One-line installer for Linux / macOS / WSL |
+| `install.ps1` | One-line installer for native Windows (PowerShell) |
 | `dashboard.html` | Web dashboard served at localhost:5050 |
 | `.env` | Your credentials (never committed) |
-| `.env.example` | Template |
-| `Start Bridge.ps1` | Windows/WSL startup script |
+| `Start Bridge.ps1` | WSL startup script (copied to Desktop by installer) |
 | `rabbit/main-src.js` | Rabbit R1 app JavaScript source |
 | `rabbit/style-src.css` | Rabbit R1 app styles |
-| `rabbit/prompt.txt` | Strict prompt for Rabbit agent to apply the files |
+| `rabbit/prompt.txt` | Prompt for Rabbit agent to apply the app files |
 | `rabbit/app-qr.png` | QR code to install the Rabbit app |
 
 ---
@@ -186,51 +162,49 @@ Token caps are pre-set for **Claude Max** plan. If the percentage shown differs 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /` | Dashboard UI |
-| `GET /usage` | Clean JSON — current/weekly percent, reset times |
-| `GET /usage/debug` | Full data including raw token counts and method used |
-| `GET /health` | `{"status":"ok"}` — for uptime checks |
-| `GET /qr` | Page with QR code of your Gist URL (scan with Rabbit) |
+| `GET /usage` | JSON — current/weekly percent, tokens, reset times |
+| `GET /usage/debug` | Full data including raw token counts |
+| `GET /health` | `{"status":"ok"}` |
+| `GET /qr` | Page with QR of your Gist URL (scan with Rabbit) |
+| `GET /gist-qr.png` | Server-generated Gist QR image |
 | `GET /app-qr.png` | QR code to install the Rabbit app |
-| `GET /api/status` | Server + Gist health status |
-| `POST /api/config` | Hot-reload credentials (`{gist_id, github_token}`) |
-| `POST /api/restart` | Graceful restart (exits with code 42 for start.js) |
+| `GET /api/status` | Server + Gist health |
+| `POST /api/config` | Set credentials — `{"github_token":"..."}` — auto-creates Gist |
+| `POST /api/restart` | Graceful restart |
 
 ---
 
 ## Troubleshooting
 
 **App asks for URL every time it opens**
-The URL is saved to both `localStorage` and Rabbit's `creationStorage`. If it keeps asking, the storage may have been cleared — re-enter the URL once and it will persist.
+Re-enter the URL once — the app now waits up to 2.5 seconds for Rabbit's storage to initialise before deciding it's a first launch.
 
 **Gist not updating / showing stale data**
-- The app shows a ⚠ warning when data is older than 3 minutes
-- Check server logs for `[gist]` lines — it logs every push attempt
-- If rate limited, the server backs off automatically and resumes at the next quota window
+The app shows ⚠ when data is older than 3 minutes. Check server logs for `[gist]` lines. If rate limited, the server backs off and resumes automatically at the next reset.
 
 **Percentage doesn't match Claude Code's `/usage`**
-- Make sure `RESET_ANCHOR_UTC` in `.env` matches your actual reset time
-- Recalibrate `MAX_OUTPUT_TOKENS_5H` (see Calibration section above)
+Make sure `RESET_ANCHOR_UTC` matches your actual reset time, or recalibrate the cap (see Calibration above).
 
 **Server won't start**
-- Check Node.js version: `node --version` (need v18+)
-- Check `.env` exists and has no extra spaces: `cat .env`
-- Check Claude Code logs exist: `ls ~/.claude/projects/`
+- Check Node.js: `node --version` (need v18+)
+- Check `.env` exists: `cat ~/claude-rabbit-usage/.env`
+- Check logs: `~/.claude/projects/` must have `.jsonl` files
 
-**Broken icon in Rabbit app**
-If the icon shows as a broken image, re-apply `rabbit/main-src.js` using the prompt — the icon was updated to an SVG which works in all WebViews.
+**Icon broken in Rabbit app**
+Re-apply `rabbit/main-src.js` via the Rabbit agent — the icon is a 32-bit RGBA PNG embedded as a data URI, which works in all WebViews.
 
 ---
 
 ## How token counting works
 
-The server reads `.jsonl` files from `~/.claude/projects/` — the same logs Claude Code uses internally. Each line that contains `message.usage.output_tokens` is a billable assistant turn. Cache tokens (`cache_read_input_tokens`, `cache_creation_input_tokens`) are excluded — they don't count toward limits.
+The server reads `.jsonl` files from `~/.claude/projects/`. Each line with `message.usage.output_tokens` is a billable assistant turn. Cache tokens are excluded — they don't count toward limits.
 
-Usage is calculated against two fixed windows:
-- **5-hour window** — resets on a fixed UTC schedule (set `RESET_ANCHOR_UTC` to match)
+Two windows:
+- **5-hour window** — resets on a fixed UTC schedule (`RESET_ANCHOR_UTC`)
 - **Weekly window** — resets every Monday at 17:00 UTC (1:00 PM Eastern)
 
 ---
 
 ## Contributing
 
-Pull requests welcome. The server has zero npm dependencies — Node.js built-ins only. The Rabbit app is a single `main.js` + `style.css` with no build step required.
+Pull requests welcome. The server has zero npm dependencies beyond `qrcode` for QR generation. The Rabbit app is a single `main.js` + `style.css` with no build step.
