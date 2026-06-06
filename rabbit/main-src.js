@@ -12,6 +12,10 @@ let lastUpdatedTimer = null;
 let lastFetchStarted = 0;
 let qrStream = null;
 let qrAnimFrame = null;
+let latestData = null;
+let lastFetchedAt = null;
+let _displayedCurrentPct = null;
+let _displayedWeeklyPct = null;
 
 const STATUS_MESSAGES = ['✱ Syncing..', '✱ Fetching..', '✱ Updating..', '✱ Loading..'];
 const CLAUDE_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAKACAMAAAA7EzkRAAAAFVBMVEVMaXHZd1fZd1fabUjZd1faf1rZd1epRaWRAAAABnRSTlMAXawH8g5t5RLrAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFOklEQVR42u3WUQ6EIAxAQcDV+x95r1Bjk2Kdid81wkMdAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADebtHa9gFedPYTIAIUoAAFiAAFKEABIkABClCACFCAAhQgAkSAAkSACFCACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAgQAQoQASJAAQpQgAhQgAIUIAIUoAAFiAAFKEABIkABClCACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAgQAQoQASJAASJABChABIgABShAASJAAQpQgAhQgAIUIAIUoAAFiAARoAARIAIUIAJEgAJEgAhQgAjwnjNmfq2EGVwYAT4UvO33AqzZDwEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFCACRABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACDDJjFnRBy6aVyb6HKto3mhiJp+4W/OOXa8bX5CZ/EVqU9YbAuzwCyNAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKcEvnDCqaV3cyg86ieQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwJv8Af3P8SOrUE9bAAAAAElFTkSuQmCC';
@@ -189,6 +193,8 @@ function renderSettings() {
 
   document.getElementById('btnBack').addEventListener('click', () => {
     showSettings = false;
+    _displayedCurrentPct = null;
+    _displayedWeeklyPct  = null;
     fetchData();
   });
 
@@ -248,6 +254,8 @@ function render(data) {
     return;
   }
 
+  latestData = data;
+
   const currentUsed = data.current_percent;
   const weeklyUsed  = data.weekly_percent;
   const currentColor = getBarColor(currentUsed);
@@ -260,6 +268,10 @@ function render(data) {
   const cap7d = data.max_tokens_7d || MAX_TOKENS_7D;
   const curTokStr = tok5h != null ? `${fmtTokens(tok5h)} / ${fmtTokens(cap5h)} tokens` : '';
   const wkTokStr  = tokWk != null ? `${fmtTokens(tokWk)} / ${fmtTokens(cap7d)} tokens` : '';
+
+  // Bars start from previously displayed value (not 0) so they don't sweep on every refresh
+  const barCurrentStart = _displayedCurrentPct !== null ? _displayedCurrentPct : 0;
+  const barWeeklyStart  = _displayedWeeklyPct  !== null ? _displayedWeeklyPct  : 0;
 
   app.innerHTML = `
     <div class="main-view${isWarning ? ' warning-bg' : ''}">
@@ -277,9 +289,9 @@ function render(data) {
           <span class="card-badge">Current</span>
         </div>
         <div class="bar-track">
-          <div class="bar-fill" data-target="${currentUsed}" style="width:0%;background:${currentColor}"></div>
+          <div class="bar-fill" data-target="${currentUsed}" style="width:${barCurrentStart}%;background:${currentColor}"></div>
         </div>
-        <span class="card-reset">Resets in ${calcTimeRemaining(data.current_reset)}</span>
+        <span class="card-reset" id="resetCurrent">Resets in ${calcTimeRemaining(data.current_reset)}</span>
       </div>
 
       <div class="divider"></div>
@@ -293,9 +305,9 @@ function render(data) {
           <span class="card-badge">Weekly</span>
         </div>
         <div class="bar-track">
-          <div class="bar-fill" data-target="${weeklyUsed}" style="width:0%;background:${weeklyColor}"></div>
+          <div class="bar-fill" data-target="${weeklyUsed}" style="width:${barWeeklyStart}%;background:${weeklyColor}"></div>
         </div>
-        <span class="card-reset">Resets in ${calcTimeRemaining(data.weekly_reset)}</span>
+        <span class="card-reset" id="resetWeekly">Resets in ${calcTimeRemaining(data.weekly_reset)}</span>
       </div>
 
       <div class="footer">
@@ -311,19 +323,26 @@ function render(data) {
     </div>
   `;
 
+  // Animate bars to target after paint
   requestAnimationFrame(() => {
     document.querySelectorAll('.bar-fill[data-target]').forEach(el => {
       el.style.width = el.dataset.target + '%';
     });
+    _displayedCurrentPct = currentUsed;
+    _displayedWeeklyPct  = weeklyUsed;
   });
 
-  const fetchedAt = Date.now();
-  function updateLastUpdated() {
-    const el = document.getElementById('lastUpdated');
-    if (el) el.textContent = 'Updated ' + timeSince(fetchedAt);
+  lastFetchedAt = Date.now();
+  function updateLiveInfo() {
+    const lu = document.getElementById('lastUpdated');
+    if (lu && lastFetchedAt) lu.textContent = 'Updated ' + timeSince(lastFetchedAt);
+    const rc = document.getElementById('resetCurrent');
+    if (rc && latestData) rc.textContent = 'Resets in ' + calcTimeRemaining(latestData.current_reset);
+    const rw = document.getElementById('resetWeekly');
+    if (rw && latestData) rw.textContent = 'Resets in ' + calcTimeRemaining(latestData.weekly_reset);
   }
-  updateLastUpdated();
-  lastUpdatedTimer = setInterval(updateLastUpdated, 5000);
+  updateLiveInfo();
+  lastUpdatedTimer = setInterval(updateLiveInfo, 1000);
 
   bindFooterButtons();
 }
