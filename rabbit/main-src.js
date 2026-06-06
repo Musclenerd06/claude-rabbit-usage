@@ -19,7 +19,7 @@ let _displayedCurrentPct = null;
 let _displayedWeeklyPct = null;
 
 const STATUS_MESSAGES = ['✱ Syncing..', '✱ Fetching..', '✱ Updating..', '✱ Loading..'];
-const CLAUDE_ICON = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23191919'/%3E%3Cg fill='%23FE5F00'%3E%3Cellipse cx='16' cy='5.5' rx='2.2' ry='2.2'/%3E%3Cellipse cx='16' cy='26.5' rx='2.2' ry='2.2'/%3E%3Cellipse cx='5.5' cy='16' rx='2.2' ry='2.2'/%3E%3Cellipse cx='26.5' cy='16' rx='2.2' ry='2.2'/%3E%3Cellipse cx='8.5' cy='8.5' rx='2' ry='2'/%3E%3Cellipse cx='23.5' cy='23.5' rx='2' ry='2'/%3E%3Cellipse cx='23.5' cy='8.5' rx='2' ry='2'/%3E%3Cellipse cx='8.5' cy='23.5' rx='2' ry='2'/%3E%3C/g%3E%3C/svg%3E";
+const CLAUDE_ICON = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAxUlEQVR4nO3YMQ6CQABFQQ5ob8UBLK08q6fR0hLJBmcNr3gVZPmZasNyud2XM8cH6PgAHR+g4wN0fICOD9DxATo+QMcH6PgAHR+g4wN0fIBu84Xn4/r65wIIIIAAAggggOMAANg6si+AAAIIIIAAAvgA/GDw1AWgB+gC0AN0AegBugBGL0Kzd/hNcPYCCCCAAAIIYABgC2Tv89HvffFDZN1zfgABBBBAAAEEcN74AB0foOMDdHyAjg/Q8QE6PkDHB+j4AN0bd5CWdVcNrocAAAAASUVORK5CYII=";
 
 function getBarColor(percent) {
   if (percent >= 80) return '#ef4444';
