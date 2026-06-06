@@ -412,28 +412,38 @@ async function fetchData() {
 
 /* ── Storage ──────────────────────────────────────────────────── */
 
+// creationStorage is injected by Rabbit OS after DOMContentLoaded — poll for it
+function waitForCreationStorage(ms = 2500) {
+  return new Promise(resolve => {
+    if (window.creationStorage) { resolve(window.creationStorage); return; }
+    const deadline = Date.now() + ms;
+    const t = setInterval(() => {
+      if (window.creationStorage) { clearInterval(t); resolve(window.creationStorage); }
+      else if (Date.now() > deadline) { clearInterval(t); resolve(null); }
+    }, 80);
+  });
+}
+
 async function saveEndpoint(url) {
-  // Always write to localStorage — most reliable across restarts
   try { localStorage.setItem('claude_endpoint', JSON.stringify({ url })); } catch (_) {}
-  // Also write to creationStorage if available (Rabbit native API)
-  if (window.creationStorage) {
-    try { await window.creationStorage.plain.setItem('endpoint', btoa(JSON.stringify({ url }))); } catch (_) {}
+  const cs = window.creationStorage || await waitForCreationStorage(1000);
+  if (cs) {
+    try { await cs.plain.setItem('endpoint', btoa(JSON.stringify({ url }))); } catch (_) {}
   }
 }
 
 async function loadEndpoint() {
   let found = false;
-  // Try creationStorage first
-  if (window.creationStorage) {
+  const cs = await waitForCreationStorage();
+  if (cs) {
     try {
-      const stored = await window.creationStorage.plain.getItem('endpoint');
+      const stored = await cs.plain.getItem('endpoint');
       if (stored) {
         const parsed = JSON.parse(atob(stored));
         if (parsed.url) { apiUrl = parsed.url; found = true; }
       }
     } catch (_) {}
   }
-  // Always try localStorage as well — wins if creationStorage had nothing
   if (!found) {
     try {
       const stored = localStorage.getItem('claude_endpoint');
