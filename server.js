@@ -42,8 +42,27 @@ const PORT         = Number(process.env.PORT || 5050);
 const BIND         = process.env.BIND || '127.0.0.1';
 const API_KEY      = process.env.API_KEY || '';
 const SCAN_MS      = (Number(process.env.SCAN_INTERVAL) || 30) * 1000;
-const FILE_OUTPUT  = '/mnt/c/Rabbit/data/usage.json';
 const DEBUG        = process.env.DEBUG === '1';
+
+// Auto-detect runtime environment for platform-specific defaults
+function detectPlatform() {
+  if (process.platform === 'win32') return 'windows';
+  try {
+    const v = fs.readFileSync('/proc/version', 'utf8').toLowerCase();
+    if (v.includes('microsoft') || v.includes('wsl')) return 'wsl';
+  } catch (_) {}
+  return 'linux';
+}
+const PLATFORM = detectPlatform();
+
+// File mirror: WSL → write to Windows filesystem as a bonus fallback.
+// Override with FILE_OUTPUT env var; set to empty string to disable.
+function resolveFileOutput() {
+  if ('FILE_OUTPUT' in process.env) return process.env.FILE_OUTPUT || null;
+  if (PLATFORM === 'wsl') return '/mnt/c/Rabbit/data/usage.json';
+  return null; // disabled on native Windows/Linux — Gist is the relay
+}
+const FILE_OUTPUT = resolveFileOutput();
 let GITHUB_TOKEN   = process.env.GITHUB_TOKEN || '';
 let GIST_ID        = process.env.GIST_ID || '';
 
@@ -324,17 +343,24 @@ function pushToGist(data) {
       'Content-Length': Buffer.byteLength(body),
     }
   }, res => {
-    if (res.statusCode === 200 || res.statusCode === 201) {
-      _lastPushedPercent = data.current_percent;
-      if (DEBUG) console.log(`[gist] Pushed ${data.current_percent}% OK`);
-    } else if (res.statusCode === 403 || res.statusCode === 429) {
-      // Rate limited — back off for 5 minutes
-      _gistBackoffUntil = Date.now() + 5 * 60 * 1000;
-      console.log(`[gist] Rate limited (HTTP ${res.statusCode}) — backing off 5 min`);
-    } else {
-      console.log(`[gist] Unexpected HTTP ${res.statusCode}`);
-    }
-    res.resume(); // drain body
+    let raw = '';
+    res.on('data', c => { raw += c; });
+    res.on('end', () => {
+      if (res.statusCode === 200 || res.statusCode === 201) {
+        _lastPushedPercent = data.current_percent;
+        console.log(`[gist] Pushed ${data.current_percent}% OK`);
+      } else if (res.statusCode === 403 || res.statusCode === 429) {
+        const retryAfter = Number(res.headers['retry-after'] || 0);
+        const backoffMs = retryAfter > 0 ? retryAfter * 1000 : 15 * 60 * 1000;
+        _gistBackoffUntil = Date.now() + backoffMs;
+        let msg = raw;
+        try { msg = JSON.parse(raw).message || raw; } catch (_) {}
+        const backoffMin = Math.ceil(backoffMs / 60000);
+        console.log(`[gist] HTTP ${res.statusCode}: ${msg} — backing off ${backoffMin} min`);
+      } else {
+        console.log(`[gist] HTTP ${res.statusCode}: ${raw.slice(0, 200)}`);
+      }
+    });
   });
 
   req.on('error', err => {
@@ -366,17 +392,19 @@ function collect() {
   // Push to Gist on every collect (every 30s)
   pushToGist(data);
 
-  // Mirror to Windows filesystem (best-effort)
-  try {
-    const dir = path.dirname(FILE_OUTPUT);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const publicData = Object.fromEntries(
-      Object.entries(data).filter(([k]) => !k.startsWith('_'))
-    );
-    const tmp = FILE_OUTPUT + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(publicData, null, 2));
-    fs.renameSync(tmp, FILE_OUTPUT);
-  } catch (_) { /* /mnt/c may not be writable — not fatal */ }
+  // Mirror to filesystem (best-effort, WSL-only by default)
+  if (FILE_OUTPUT) {
+    try {
+      const dir = path.dirname(FILE_OUTPUT);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const publicData = Object.fromEntries(
+        Object.entries(data).filter(([k]) => !k.startsWith('_'))
+      );
+      const tmp = FILE_OUTPUT + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(publicData, null, 2));
+      fs.renameSync(tmp, FILE_OUTPUT);
+    } catch (_) { /* not fatal */ }
+  }
 
   // Schedule an immediate re-collect right when the oldest token exits the 5h window.
   // Catches resets even when the 30s poll fires late (e.g. after WSL sleep).
@@ -547,9 +575,16 @@ ${gistUrl
           if (!gist_id || !github_token) {
             return sendJSON(res, 400, { error: 'gist_id and github_token are required' });
           }
-          // Write .env
+          // Write .env — preserve existing keys, only update provided ones
           const envPath = path.join(__dirname, '.env');
-          fs.writeFileSync(envPath, `GITHUB_TOKEN=${github_token.trim()}\nGIST_ID=${gist_id.trim()}\n`);
+          const updates = { GITHUB_TOKEN: github_token.trim(), GIST_ID: gist_id.trim() };
+          let existing = [];
+          if (fs.existsSync(envPath)) {
+            existing = fs.readFileSync(envPath, 'utf8').split('\n')
+              .filter(l => { const m = l.match(/^([A-Z_]+)=/); return m && !(m[1] in updates); });
+          }
+          const lines = [...existing, ...Object.entries(updates).map(([k, v]) => `${k}=${v}`)];
+          fs.writeFileSync(envPath, lines.join('\n') + '\n');
           fs.chmodSync(envPath, 0o600);
           // Hot-reload credentials
           GITHUB_TOKEN = github_token.trim();
@@ -665,7 +700,7 @@ server.listen(PORT, BIND, () => {
   console.log(`  /usage/debug  — stats + breakdown`);
   console.log(`  /health       — heartbeat`);
   console.log(`Auth: ${API_KEY ? 'enabled (x-api-key header)' : 'disabled (use tunnel)'}`);
-  console.log(`File mirror: ${FILE_OUTPUT}`);
+  console.log(`File mirror: ${FILE_OUTPUT || 'disabled'}`);
   console.log(`\nPress Ctrl+C to stop.`);
 });
 
