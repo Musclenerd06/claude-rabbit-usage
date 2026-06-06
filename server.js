@@ -294,10 +294,17 @@ function calcFromTimestamps(ts_list) {
 
 
 // ─────────────────────────────────────────────
-// GitHub Gist push
+// GitHub Gist push (with rate-limit backoff)
 // ─────────────────────────────────────────────
+let _gistBackoffUntil = 0; // timestamp — skip pushes until this clears
+let _lastPushedPercent = null;
+
 function pushToGist(data) {
   if (!GITHUB_TOKEN || !GIST_ID) return;
+  if (Date.now() < _gistBackoffUntil) return; // backed off
+
+  // Skip push if nothing changed (saves quota)
+  if (data.current_percent === _lastPushedPercent) return;
 
   const publicData = Object.fromEntries(
     Object.entries(data).filter(([k]) => !k.startsWith('_'))
@@ -317,11 +324,21 @@ function pushToGist(data) {
       'Content-Length': Buffer.byteLength(body),
     }
   }, res => {
-    if (DEBUG) console.log(`Gist push: HTTP ${res.statusCode}`);
+    if (res.statusCode === 200 || res.statusCode === 201) {
+      _lastPushedPercent = data.current_percent;
+      if (DEBUG) console.log(`[gist] Pushed ${data.current_percent}% OK`);
+    } else if (res.statusCode === 403 || res.statusCode === 429) {
+      // Rate limited — back off for 5 minutes
+      _gistBackoffUntil = Date.now() + 5 * 60 * 1000;
+      console.log(`[gist] Rate limited (HTTP ${res.statusCode}) — backing off 5 min`);
+    } else {
+      console.log(`[gist] Unexpected HTTP ${res.statusCode}`);
+    }
+    res.resume(); // drain body
   });
 
   req.on('error', err => {
-    if (DEBUG) console.log(`Gist push error: ${err.message}`);
+    console.log(`[gist] Push error: ${err.message}`);
   });
   req.write(body);
   req.end();
