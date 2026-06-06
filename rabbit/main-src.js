@@ -10,9 +10,11 @@ let statusCycleTimer = null;
 let currentStatusIdx = 0;
 let lastUpdatedTimer = null;
 let lastFetchStarted = 0;
+let qrStream = null;
+let qrAnimFrame = null;
 
 const STATUS_MESSAGES = ['✱ Syncing..', '✱ Fetching..', '✱ Updating..', '✱ Loading..'];
-const CLAUDE_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAKACAMAAAA7EzkRAAAAFVBMVEVMaXHZd1fZd1babUjZd1faf1rZd1epRaWRAAAABnRSTlMAXawH8g5t5RLrAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFOklEQVR42u3WUQ6EIAxAQcDV+x95r1Bjk2Kdid81wkMdAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADebtHa9gFedPYTIAIUoAAFiAAFKEABIkABClCACFCAAhQgAkSAAkSACFCACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAgQAQoQASJAAQpQgAhQgAIUIAIUoAAFiAAFKEABIkABClCACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAgQAQoQASJAASJABChABIgABShAASJAAQpQgAhQgAIUIAIUoAAFiAARoAARIAIUIAJEgAJEgAhQgAjwnjNmfq2EGVwYAT4UvO33AqzZDwEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoACTHTHfCzC4MNkBHsnGBYUEiAARIAgQAYIAESAIEAGCABEgCBABggARIAgQAYIAESAIEAGCABEgCBABggARIAgQAYIAESAIEAEiQBAgAgQBIkAQIAIEASJAECACBAEiQBAgAgQBIkAQIAIEASJAECACBAEiQBAgAgQBIkAQIAIEASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIDwNMCVzJL2lt3LyGaLmr+xdmeLBChABIgABYgAEaAAESACFCACRIACRIAIUIAIEAEKEAEiQAEiQAQoQASIAAWIABGgABEgAhQgAkSAAhSgABGgAAUoQAQoQAEKEAEKUIACRIAIUIAIEAEKEAEiQAEiQAQoQASIAAWIABGgABEgAhQgAkSAAkSACFCACBABChABIkABIkAEKEABChABClCAAkSAAhSgABGgAAUoQAQoQAEKEAEiQAEiQAQoQASIAAWIABGgABEgAhQgAkSAAkSACDDJjFnRBy6aVyb6HKto3mhiJp+4W/OOXa8bX5CZ/EVqU9YbAuzwCyNAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKcEvnDCqaV3cyg86ieQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwJv8Af3P8SOrUE9bAAAAAElFTkSuQmCC';
+const CLAUDE_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAKACAMAAAA7EzkRAAAAFVBMVEVMaXHZd1fZd1fabUjZd1faf1rZd1epRaWRAAAABnRSTlMAXawH8g5t5RLrAAAACXBIWXMAAAsTAAALEwEAmpwYAAAFOklEQVR42u3WUQ6EIAxAQcDV+x95r1Bjk2Kdid81wkMdAwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADebtHa9gFedPYTIAIUoAAFiAAFKEABIkABClCACFCAAhQgAkSAAkSACFCACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAgQAQoQASJAAQpQgAhQgAIUIAIUoAAFiAAFKEABIkABClCACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAgQAQoQASJAASJABChABIgABShAASJAAQpQgAhQgAIUIAIUoAAFiAARoAARIAIUIAJEgAJEgAhQgAjwnjNmfq2EGVwYAT4UvO33AqzZDwEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFCACRABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACBABChABIkABIkAEKEAEiAAFiAARoAARIAIUIAJEgAJEgAhQgAhQgAhQgAhQgAgQAQoQASJAASJABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSAIEAECAJEgCBABAgCRIAgQAQIAkSACDDJjFnRBy6aVyb6HKto3mhiJp+4W/OOXa8bX5CZ/EVqU9YbAuzwCyNAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKUIACFKAABShAAQpQgAIUoAAFKEABClCAAhSgAAUoQAEKcEvnDCqaV3cyg86ieQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwJv8Af3P8SOrUE9bAAAAAElFTkSuQmCC';
 
 function getBarColor(percent) {
   if (percent >= 80) return '#ef4444';
@@ -73,6 +75,97 @@ function updateStatusText(text) {
   if (el) el.textContent = text;
 }
 
+/* ── QR Scanner ────────────────────────────────────────────────── */
+
+function loadJsQR() {
+  return new Promise((resolve, reject) => {
+    if (window.jsQR) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function closeQrScanner() {
+  if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
+  if (qrStream) { qrStream.getTracks().forEach(t => t.stop()); qrStream = null; }
+  const ov = document.getElementById('qrOverlay');
+  if (ov) ov.remove();
+}
+
+function scanFrame() {
+  const video  = document.getElementById('qrVideo');
+  const canvas = document.getElementById('qrCanvas');
+  if (!video || !canvas || !window.jsQR) return;
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = window.jsQR(img.data, img.width, img.height);
+    if (code) {
+      closeQrScanner();
+      const input = document.getElementById('urlInput');
+      if (input) {
+        input.value = code.data;
+        input.style.borderColor = '#22c55e';
+        setTimeout(() => { input.style.borderColor = ''; }, 1500);
+      }
+      return;
+    }
+  }
+  qrAnimFrame = requestAnimationFrame(scanFrame);
+}
+
+async function openQrScanner() {
+  const app = document.getElementById('app');
+  const overlay = document.createElement('div');
+  overlay.id = 'qrOverlay';
+  overlay.className = 'qr-overlay';
+  overlay.innerHTML = `
+    <div class="qr-header">
+      <span class="qr-title">Scan QR Code</span>
+      <button class="btn-back" id="btnCancelScan">✕</button>
+    </div>
+    <div class="qr-body" id="qrBody">
+      <video id="qrVideo" class="qr-video" playsinline autoplay muted></video>
+      <canvas id="qrCanvas" class="qr-canvas"></canvas>
+      <div class="qr-viewfinder"></div>
+      <p class="qr-hint">Point at your Gist URL QR code</p>
+    </div>
+  `;
+  app.appendChild(overlay);
+  document.getElementById('btnCancelScan').addEventListener('click', closeQrScanner);
+
+  try {
+    await loadJsQR();
+  } catch (e) {
+    document.getElementById('qrBody').innerHTML =
+      `<p class="qr-hint" style="color:#ef4444">Could not load scanner.<br>Check internet connection.</p>`;
+    return;
+  }
+
+  try {
+    qrStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    const video = document.getElementById('qrVideo');
+    if (!video) { closeQrScanner(); return; }
+    video.srcObject = qrStream;
+    video.play();
+    video.addEventListener('loadedmetadata', scanFrame);
+  } catch (e) {
+    document.getElementById('qrBody').innerHTML =
+      `<p class="qr-hint" style="color:#ef4444">Camera unavailable:<br>${e.message}</p>`;
+  }
+}
+
+/* ── Settings ─────────────────────────────────────────────────── */
+
 function renderSettings() {
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -84,6 +177,7 @@ function renderSettings() {
       <div class="settings-body">
         <label class="input-label">Endpoint URL</label>
         <input type="text" id="urlInput" class="url-input" value="${apiUrl}" placeholder="Enter JSON endpoint URL" />
+        <button class="btn-qr-scan" id="btnQrScan">Scan QR Code</button>
         <div class="settings-actions">
           <button class="btn-save" id="btnSave">Save</button>
           <button class="btn-reset" id="btnReset">Reset</button>
@@ -97,6 +191,8 @@ function renderSettings() {
     showSettings = false;
     fetchData();
   });
+
+  document.getElementById('btnQrScan').addEventListener('click', openQrScanner);
 
   document.getElementById('btnSave').addEventListener('click', async () => {
     const val = document.getElementById('urlInput').value.trim();
@@ -116,6 +212,8 @@ function renderSettings() {
     fetchData();
   });
 }
+
+/* ── Main render ──────────────────────────────────────────────── */
 
 function render(data) {
   if (showSettings) {
@@ -151,15 +249,15 @@ function render(data) {
   }
 
   const currentUsed = data.current_percent;
-  const weeklyUsed = data.weekly_percent;
+  const weeklyUsed  = data.weekly_percent;
   const currentColor = getBarColor(currentUsed);
-  const weeklyColor = getBarColor(weeklyUsed);
+  const weeklyColor  = getBarColor(weeklyUsed);
   const isWarning = currentUsed >= 80;
 
-  const tok5h  = data.current_tokens;
-  const tokWk  = data.weekly_tokens;
-  const cap5h  = data.max_tokens_5h  || MAX_TOKENS_5H;
-  const cap7d  = data.max_tokens_7d  || MAX_TOKENS_7D;
+  const tok5h = data.current_tokens;
+  const tokWk = data.weekly_tokens;
+  const cap5h = data.max_tokens_5h || MAX_TOKENS_5H;
+  const cap7d = data.max_tokens_7d || MAX_TOKENS_7D;
   const curTokStr = tok5h != null ? `${fmtTokens(tok5h)} / ${fmtTokens(cap5h)} tokens` : '';
   const wkTokStr  = tokWk != null ? `${fmtTokens(tokWk)} / ${fmtTokens(cap7d)} tokens` : '';
 
@@ -242,6 +340,8 @@ function bindFooterButtons() {
   });
 }
 
+/* ── Data fetch ───────────────────────────────────────────────── */
+
 async function fetchData() {
   const now = Date.now();
   if (now - lastFetchStarted < 5000) return;
@@ -277,6 +377,8 @@ async function fetchData() {
     });
 }
 
+/* ── Storage ──────────────────────────────────────────────────── */
+
 async function saveEndpoint(url) {
   if (window.creationStorage) {
     try {
@@ -305,6 +407,8 @@ async function loadEndpoint() {
     }
   }
 }
+
+/* ── Init ─────────────────────────────────────────────────────── */
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadEndpoint();
