@@ -24,6 +24,14 @@ const http  = require('http');
 const https = require('https');
 const os    = require('os');
 
+let QRCode = null;
+try { QRCode = require('qrcode'); } catch (_) {}
+
+async function qrPng(text) {
+  if (!QRCode) return null;
+  return QRCode.toBuffer(text, { width: 300, margin: 2 });
+}
+
 // ─────────────────────────────────────────────
 // Load .env if present
 // ─────────────────────────────────────────────
@@ -577,6 +585,15 @@ function createServer() {
     } else if (url === '/health') {
       sendJSON(res, 200, { status: 'ok', timestamp: new Date().toISOString() });
 
+    } else if (url === '/gist-qr.png') {
+      const gistUrl = gistRawUrl();
+      if (!gistUrl) { sendJSON(res, 404, { error: 'Gist not configured' }); return; }
+      const buf = await qrPng(gistUrl);
+      if (!buf) { sendJSON(res, 503, { error: 'qrcode package not installed — run npm install' }); return; }
+      cors(res);
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+      res.end(buf);
+
     } else if (url === '/qr') {
       const gistUrl = gistRawUrl();
       cors(res);
@@ -593,7 +610,7 @@ function createServer() {
          min-height:100vh; padding:24px; box-sizing:border-box; }
   h2 { font-size:1.3rem; margin:0 0 8px; color:#FE5F00; }
   p  { font-size:.85rem; color:#6b7280; margin:0 0 24px; text-align:center; }
-  canvas { border:4px solid #fff; border-radius:12px; }
+  img { border:4px solid #fff; border-radius:12px; width:300px; height:300px; background:#fff; }
   .url { margin-top:20px; font-size:.75rem; color:#4b5563; word-break:break-all;
          max-width:340px; text-align:center; font-family:monospace; }
   .none { color:#ef4444; font-size:1rem; }
@@ -603,9 +620,7 @@ function createServer() {
 <h2>Scan to configure Rabbit app</h2>
 <p>Point your Rabbit at this code — it fills in the endpoint automatically.</p>
 ${gistUrl
-  ? `<canvas id="qr"></canvas><p class="url">${gistUrl}</p>
-     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"><\/script>
-     <script>QRCode.toCanvas(document.getElementById('qr'),'${gistUrl}',{width:280,margin:2})<\/script>`
+  ? `<img src="/gist-qr.png" alt="QR code"><p class="url">${gistUrl}</p>`
   : `<p class="none">GIST_ID not configured in .env — set it up first.</p>`}
 </body>
 </html>`);

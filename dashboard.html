@@ -275,7 +275,6 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 <script>
 // ── Tab switching ──────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(t => {
@@ -398,18 +397,8 @@ async function loadStatus() {
 
 function renderGistQr(url) {
   const wrap = document.getElementById('gistQrWrap');
-  wrap.innerHTML = '<canvas id="gistQrCanvas"></canvas>';
-  window.QRCode.toCanvas(document.getElementById('gistQrCanvas'), url, {
-    width: 220, margin: 2,
-    color: { dark: '#000000', light: '#ffffff' }
-  }, err => {
-    if (err) wrap.innerHTML = '<div class="qr-not-configured">QR generation failed</div>';
-    else {
-      const c = document.getElementById('gistQrCanvas');
-      c.style.borderRadius = '10px';
-      c.style.border = '3px solid #fff';
-    }
-  });
+  if (!url) { wrap.innerHTML = '<div class="qr-not-configured">Gist not configured</div>'; return; }
+  wrap.innerHTML = '<img src="/gist-qr.png?t=' + Date.now() + '" style="width:220px;height:220px;border-radius:10px;border:3px solid #fff;background:#fff;" alt="Gist QR">';
 }
 
 loadStatus();
