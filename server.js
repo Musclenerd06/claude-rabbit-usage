@@ -65,6 +65,7 @@ function resolveFileOutput() {
 const FILE_OUTPUT = resolveFileOutput();
 let GITHUB_TOKEN   = process.env.GITHUB_TOKEN || '';
 let GIST_ID        = process.env.GIST_ID || '';
+let GITHUB_USER    = process.env.GITHUB_USER || '';
 
 const HOME = os.homedir();
 
@@ -313,6 +314,40 @@ function calcFromTimestamps(ts_list) {
 
 
 // ─────────────────────────────────────────────
+// GitHub helpers
+// ─────────────────────────────────────────────
+function gistRawUrl() {
+  if (!GIST_ID) return '';
+  if (GITHUB_USER) return `https://gist.githubusercontent.com/${GITHUB_USER}/${GIST_ID}/raw/usage.json`;
+  return ''; // unknown until username resolved
+}
+
+// Fetch GitHub username from token if not set — fires once at startup
+function resolveGithubUser() {
+  if (GITHUB_USER || !GITHUB_TOKEN) return;
+  const req = https.request({
+    hostname: 'api.github.com',
+    path: '/user',
+    method: 'GET',
+    headers: { 'Authorization': `token ${GITHUB_TOKEN}`, 'User-Agent': 'claude-usage-collector' }
+  }, res => {
+    let raw = '';
+    res.on('data', c => { raw += c; });
+    res.on('end', () => {
+      try {
+        const login = JSON.parse(raw).login;
+        if (login) {
+          GITHUB_USER = login;
+          console.log(`[gist] Resolved GitHub user: ${login}`);
+        }
+      } catch (_) {}
+    });
+  });
+  req.on('error', () => {});
+  req.end();
+}
+
+// ─────────────────────────────────────────────
 // GitHub Gist push (with rate-limit backoff)
 // ─────────────────────────────────────────────
 // gist_update resource limit: 100 PATCH/hr.
@@ -543,9 +578,7 @@ function createServer() {
       sendJSON(res, 200, { status: 'ok', timestamp: new Date().toISOString() });
 
     } else if (url === '/qr') {
-      const gistUrl = GIST_ID
-        ? `https://gist.githubusercontent.com/raw/${GIST_ID}/usage.json`
-        : '';
+      const gistUrl = gistRawUrl();
       cors(res);
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!DOCTYPE html>
@@ -581,9 +614,7 @@ ${gistUrl
       const files = findJsonlFiles(JSONL_GLOBS);
       if (!_latestData) collect();
       const d = _latestData;
-      const gistUrl = GIST_ID
-        ? `https://gist.githubusercontent.com/${GIST_ID}/raw/usage.json`
-        : '';
+      const gistUrl = gistRawUrl();
       sendJSON(res, 200, {
         server:           'running',
         logs_found:       files.length > 0,
@@ -715,6 +746,7 @@ if (args.includes('--discover')) {
 
 // Initial collect
 console.log('Claude Code Usage Bridge starting...');
+resolveGithubUser();
 collect();
 
 // Poll every SCAN_MS for local/in-memory updates
