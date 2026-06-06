@@ -321,7 +321,8 @@ function collect() {
 
   _latestData = data;
 
-  // Gist is pushed on its own slower timer — not here
+  // Push to Gist on every collect (every 30s)
+  pushToGist(data);
 
   // Mirror to Windows filesystem (best-effort)
   try {
@@ -335,6 +336,10 @@ function collect() {
     fs.renameSync(tmp, FILE_OUTPUT);
   } catch (_) { /* /mnt/c may not be writable — not fatal */ }
 
+  // Schedule an immediate re-collect right when the oldest token exits the 5h window.
+  // Catches resets even when the 30s poll fires late (e.g. after WSL sleep).
+  scheduleResetCollect(data.current_reset);
+
   if (DEBUG) {
     const d = data._debug;
     console.log(
@@ -346,6 +351,18 @@ function collect() {
   }
 
   return data;
+}
+
+let _resetTimer = null;
+function scheduleResetCollect(resetISO) {
+  if (_resetTimer) { clearTimeout(_resetTimer); _resetTimer = null; }
+  if (!resetISO) return;
+  const delay = new Date(resetISO).getTime() - Date.now();
+  if (delay <= 0 || delay > WINDOW_5H) return;
+  _resetTimer = setTimeout(() => {
+    _resetTimer = null;
+    collect();
+  }, delay + 500);
 }
 
 

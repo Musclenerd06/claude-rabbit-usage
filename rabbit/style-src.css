@@ -381,14 +381,19 @@ html, body {
   color: #fff;
 }
 
-/* QR Scan button in settings */
+/* QR button row in settings */
+.qr-btn-row {
+  display: flex;
+  gap: 3vw;
+}
+
 .btn-qr-scan {
-  width: 100%;
+  flex: 1;
   background: #0d0d0d;
   border: 1.5px solid #FE5F00;
   border-radius: 3vw;
   color: #FE5F00;
-  font-size: 4vw;
+  font-size: 3.8vw;
   font-weight: 700;
   padding: 2.5vh 0;
   min-height: 44px;
@@ -399,6 +404,26 @@ html, body {
 
 .btn-qr-scan:active {
   background: #1a0d00;
+  opacity: 0.85;
+}
+
+.btn-qr-show {
+  flex: 1;
+  background: #0d0d0d;
+  border: 1.5px solid #6b7280;
+  border-radius: 3vw;
+  color: #9ca3af;
+  font-size: 3.8vw;
+  font-weight: 700;
+  padding: 2.5vh 0;
+  min-height: 44px;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+.btn-qr-show:active {
+  background: #1a1a1a;
   opacity: 0.85;
 }
 
@@ -471,4 +496,30 @@ html, body {
   border-radius: 5vw;
   pointer-events: none;
   line-height: 1.5;
+}
+
+/* QR Generator overlay body */
+.qr-gen-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3vw;
+  gap: 2vh;
+}
+
+.qr-gen-canvas {
+  border-radius: 3vw;
+  border: 3px solid #fff;
+}
+
+.qr-gen-url {
+  font-size: 2.6vw;
+  color: #6b7280;
+  text-align: center;
+  word-break: break-all;
+  font-family: monospace;
+  max-width: 90%;
+  line-height: 1.4;
 }
