@@ -1,0 +1,527 @@
+#!/usr/bin/env node
+/**
+ * Claude Code Usage Collector + Bridge Server
+ *
+ * Architecture:
+ *   ~/.claude/**\/*.jsonl  →  collector  →  localhost:5050  →  Cloudflare Tunnel  →  Rabbit
+ *
+ * Zero npm dependencies — pure Node.js built-ins only.
+ * Also mirrors output to /mnt/c/Rabbit/data/usage.json as a bonus fallback.
+ *
+ * Environment variables:
+ *   PORT            — HTTP port (default 5050)
+ *   BIND            — bind address (default 127.0.0.1; set 0.0.0.0 for direct external)
+ *   API_KEY         — shared secret Rabbit sends as x-api-key header (leave empty to disable)
+ *   SCAN_INTERVAL   — seconds between scans (default 30)
+ *   DEBUG           — set to 1 for verbose logging
+ */
+
+'use strict';
+
+const fs    = require('fs');
+const path  = require('path');
+const http  = require('http');
+const https = require('https');
+const os    = require('os');
+
+// ─────────────────────────────────────────────
+// Load .env if present
+// ─────────────────────────────────────────────
+const ENV_FILE = path.join(__dirname, '.env');
+if (fs.existsSync(ENV_FILE)) {
+  for (const line of fs.readFileSync(ENV_FILE, 'utf8').split('\n')) {
+    const m = line.match(/^([A-Z_]+)=(.+)$/);
+    if (m) process.env[m[1]] = m[2].trim();
+  }
+}
+
+// ─────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────
+const PORT         = Number(process.env.PORT || 5050);
+const BIND         = process.env.BIND || '127.0.0.1';
+const API_KEY      = process.env.API_KEY || '';
+const SCAN_MS      = (Number(process.env.SCAN_INTERVAL) || 30) * 1000;
+const GIST_PUSH_MS = 5 * 60 * 1000;   // push to Gist every 5 min only
+const FILE_OUTPUT  = '/mnt/c/Rabbit/data/usage.json';
+const DEBUG        = process.env.DEBUG === '1';
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
+const GIST_ID      = process.env.GIST_ID || '';
+
+const HOME = os.homedir();
+
+const JSONL_GLOBS = [
+  path.join(HOME, '.claude', 'projects'),
+  path.join(HOME, '.config', 'claude', 'projects'),
+];
+
+const HISTORY_FILES = [
+  path.join(HOME, '.claude', 'history.jsonl'),
+  path.join(HOME, '.config', 'claude', 'history.jsonl'),
+];
+
+// Caps back-calculated from real Anthropic dashboard readings:
+//   233,736 output tokens = 40% current  → cap = 584,340
+//   1,687,875 output tokens = 43% weekly → cap = 3,925,290
+//   412,291 output tokens = 72% current  → cap = 572,626  (2026-06-06 recalibration)
+const MAX_OUTPUT_TOKENS_5H = 572_626;
+const MAX_OUTPUT_TOKENS_7D = 3_991_104;
+const MAX_MESSAGES_5H      = 300;   // fallback only
+const MAX_MESSAGES_7D      = 2_000; // fallback only
+
+const WINDOW_5H = 5 * 3600 * 1000; // ms
+
+// Weekly resets every Monday at 13:00 Eastern = 17:00 UTC
+const WEEKLY_RESET_DAY  = 1;   // Monday
+const WEEKLY_RESET_HOUR = 17;  // 17:00 UTC
+
+
+// ─────────────────────────────────────────────
+// File discovery
+// ─────────────────────────────────────────────
+function findJsonlFiles(bases) {
+  const results = [];
+
+  function walk(dir) {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+    catch (_) { return; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(full); }
+      else if (e.isFile() && e.name.endsWith('.jsonl')) { results.push(full); }
+    }
+  }
+
+  for (const base of bases) {
+    if (fs.existsSync(base)) walk(base);
+  }
+
+  for (const hf of HISTORY_FILES) {
+    if (fs.existsSync(hf) && !results.includes(hf)) results.push(hf);
+  }
+
+  return results;
+}
+
+
+// ─────────────────────────────────────────────
+// JSONL parsing
+// ─────────────────────────────────────────────
+/**
+ * Returns array of { ts: number(ms), inputTokens, outputTokens }
+ * for every assistant message that has a usage field.
+ */
+function parseUsageEntries(files) {
+  const entries = [];
+
+  for (const f of files) {
+    let raw;
+    try { raw = fs.readFileSync(f, 'utf8'); }
+    catch (_) { continue; }
+
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      let obj;
+      try { obj = JSON.parse(line); }
+      catch (_) { continue; }
+
+      if (obj.type !== 'assistant') continue;
+      const msg   = obj.message;
+      if (!msg || typeof msg !== 'object') continue;
+      const usage = msg.usage;
+      if (!usage) continue;
+      const tsStr = obj.timestamp;
+      if (!tsStr) continue;
+
+      let ts;
+      try { ts = new Date(tsStr).getTime(); }
+      catch (_) { continue; }
+      if (!Number.isFinite(ts) || ts <= 0) continue;
+
+      entries.push({
+        ts,
+        inputTokens:  Number(usage.input_tokens  || 0),
+        outputTokens: Number(usage.output_tokens || 0),
+        model:        msg.model || 'unknown',
+      });
+    }
+  }
+
+  entries.sort((a, b) => a.ts - b.ts);
+  return entries;
+}
+
+/**
+ * Fallback: collect raw message timestamps (ms) from any field.
+ */
+function parseMessageTimestamps(files) {
+  const ts_list = [];
+
+  for (const f of files) {
+    let raw;
+    try { raw = fs.readFileSync(f, 'utf8'); }
+    catch (_) { continue; }
+
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      let obj;
+      try { obj = JSON.parse(line); }
+      catch (_) { continue; }
+
+      const ts = obj.timestamp;
+      if (typeof ts === 'number' && ts > 1e12) {
+        ts_list.push(ts);           // already ms
+      } else if (typeof ts === 'string') {
+        const t = new Date(ts).getTime();
+        if (Number.isFinite(t) && t > 0) ts_list.push(t);
+      }
+    }
+  }
+
+  ts_list.sort((a, b) => a - b);
+  return ts_list;
+}
+
+
+// ─────────────────────────────────────────────
+// Usage calculation
+// ─────────────────────────────────────────────
+function getWeeklyResetTime() {
+  const now = new Date();
+  // Find the most recent Monday at WEEKLY_RESET_HOUR UTC
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), WEEKLY_RESET_HOUR, 0, 0, 0));
+  // Roll back to Monday
+  const dayOfWeek = d.getUTCDay(); // 0=Sun, 1=Mon...
+  const daysToLastMonday = (dayOfWeek === 0 ? 6 : dayOfWeek - WEEKLY_RESET_DAY);
+  d.setUTCDate(d.getUTCDate() - daysToLastMonday);
+  // If that reset is in the future, go back one more week
+  if (d.getTime() > now.getTime()) d.setUTCDate(d.getUTCDate() - 7);
+  return d; // last weekly reset timestamp
+}
+
+function getNextWeeklyResetTime() {
+  const last = getWeeklyResetTime();
+  return new Date(last.getTime() + 7 * 24 * 3600 * 1000);
+}
+
+function calcFromUsageEntries(entries) {
+  const now       = Date.now();
+  const weekStart = getWeeklyResetTime().getTime();
+
+  const e5h  = entries.filter(e => now - e.ts <= WINDOW_5H);
+  const eWeek = entries.filter(e => e.ts >= weekStart);
+
+  const out5h  = e5h.reduce((s, e) => s + e.outputTokens, 0);
+  const outWeek = eWeek.reduce((s, e) => s + e.outputTokens, 0);
+
+  const currentPct = Math.min(100, +(out5h   / MAX_OUTPUT_TOKENS_5H * 100).toFixed(1));
+  const weeklyPct  = Math.min(100, +(outWeek / MAX_OUTPUT_TOKENS_7D * 100).toFixed(1));
+
+  const oldestTs5h = e5h.length ? e5h[0].ts : now;
+
+  return {
+    current_percent: currentPct,
+    weekly_percent:  weeklyPct,
+    current_reset:   new Date(oldestTs5h + WINDOW_5H).toISOString().replace('.000Z', 'Z'),
+    weekly_reset:    getNextWeeklyResetTime().toISOString().replace('.000Z', 'Z'),
+    last_updated:    new Date().toISOString().replace('.000Z', 'Z'),
+    current_tokens:  out5h,
+    weekly_tokens:   outWeek,
+    max_tokens_5h:   MAX_OUTPUT_TOKENS_5H,
+    max_tokens_7d:   MAX_OUTPUT_TOKENS_7D,
+    _debug: {
+      method:            'token_usage',
+      messages_5h:       e5h.length,
+      messages_week:     eWeek.length,
+      output_tokens_5h:  out5h,
+      output_tokens_week: outWeek,
+      week_start:        new Date(weekStart).toISOString(),
+    }
+  };
+}
+
+function calcFromTimestamps(ts_list) {
+  const now       = Date.now();
+  const weekStart = getWeeklyResetTime().getTime();
+
+  const ts5h  = ts_list.filter(t => now - t <= WINDOW_5H);
+  const tsWeek = ts_list.filter(t => t >= weekStart);
+
+  const currentPct = Math.min(100, +(ts5h.length  / MAX_MESSAGES_5H  * 100).toFixed(1));
+  const weeklyPct  = Math.min(100, +(tsWeek.length / MAX_MESSAGES_7D  * 100).toFixed(1));
+
+  const oldest5h = ts5h.length ? ts5h[0] : now;
+
+  return {
+    current_percent: currentPct,
+    weekly_percent:  weeklyPct,
+    current_reset:   new Date(oldest5h + WINDOW_5H).toISOString().replace('.000Z', 'Z'),
+    weekly_reset:    getNextWeeklyResetTime().toISOString().replace('.000Z', 'Z'),
+    last_updated:    new Date().toISOString().replace('.000Z', 'Z'),
+    _debug: {
+      method:       'message_count_fallback',
+      messages_5h:  ts5h.length,
+      messages_week: tsWeek.length,
+    }
+  };
+}
+
+
+// ─────────────────────────────────────────────
+// GitHub Gist push
+// ─────────────────────────────────────────────
+function pushToGist(data) {
+  if (!GITHUB_TOKEN || !GIST_ID) return;
+
+  const publicData = Object.fromEntries(
+    Object.entries(data).filter(([k]) => !k.startsWith('_'))
+  );
+  const body = JSON.stringify({
+    files: { 'usage.json': { content: JSON.stringify(publicData, null, 2) } }
+  });
+
+  const req = https.request({
+    hostname: 'api.github.com',
+    path: `/gists/${GIST_ID}`,
+    method: 'PATCH',
+    headers: {
+      'Authorization': `token ${GITHUB_TOKEN}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'claude-usage-collector',
+      'Content-Length': Buffer.byteLength(body),
+    }
+  }, res => {
+    if (DEBUG) console.log(`Gist push: HTTP ${res.statusCode}`);
+  });
+
+  req.on('error', err => {
+    if (DEBUG) console.log(`Gist push error: ${err.message}`);
+  });
+  req.write(body);
+  req.end();
+}
+
+// ─────────────────────────────────────────────
+// Collector state (in-memory cache)
+// ─────────────────────────────────────────────
+let _latestData = null;
+
+function collect() {
+  const files   = findJsonlFiles(JSONL_GLOBS);
+  const entries = parseUsageEntries(files);
+
+  let data;
+  if (entries.length > 0) {
+    data = calcFromUsageEntries(entries);
+  } else {
+    const ts_list = parseMessageTimestamps(files);
+    data = calcFromTimestamps(ts_list);
+  }
+
+  _latestData = data;
+
+  // Gist is pushed on its own slower timer — not here
+
+  // Mirror to Windows filesystem (best-effort)
+  try {
+    const dir = path.dirname(FILE_OUTPUT);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const publicData = Object.fromEntries(
+      Object.entries(data).filter(([k]) => !k.startsWith('_'))
+    );
+    const tmp = FILE_OUTPUT + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(publicData, null, 2));
+    fs.renameSync(tmp, FILE_OUTPUT);
+  } catch (_) { /* /mnt/c may not be writable — not fatal */ }
+
+  if (DEBUG) {
+    const d = data._debug;
+    console.log(
+      `[${data.last_updated}] current=${data.current_percent}%  weekly=${data.weekly_percent}%` +
+      (d.output_tokens_5h !== undefined
+        ? `  out5h=${d.output_tokens_5h.toLocaleString()} msgs5h=${d.messages_5h}`
+        : `  msgs5h=${d.messages_5h} [fallback]`)
+    );
+  }
+
+  return data;
+}
+
+
+// ─────────────────────────────────────────────
+// File watcher — re-collect when logs change
+// ─────────────────────────────────────────────
+function watchLogs() {
+  for (const base of JSONL_GLOBS) {
+    if (!fs.existsSync(base)) continue;
+    try {
+      fs.watch(base, { recursive: true }, (_event, filename) => {
+        if (filename && filename.endsWith('.jsonl')) {
+          collect();
+        }
+      });
+      if (DEBUG) console.log(`Watching: ${base}`);
+    } catch (_) {
+      if (DEBUG) console.log(`Cannot watch ${base} — falling back to poll`);
+    }
+  }
+}
+
+
+// ─────────────────────────────────────────────
+// HTTP server
+// ─────────────────────────────────────────────
+function cors(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
+
+function sendJSON(res, status, body) {
+  cors(res);
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body, null, 2));
+}
+
+function checkAuth(req, res) {
+  if (!API_KEY) return true;                           // auth disabled
+  const key = req.headers['x-api-key'] || '';
+  if (key === API_KEY) return true;
+  cors(res);
+  res.writeHead(403, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'forbidden' }));
+  return false;
+}
+
+function createServer() {
+  return http.createServer((req, res) => {
+    if (req.method === 'OPTIONS') {
+      cors(res);
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    const url = req.url.split('?')[0];
+
+    // /health is always public (Cloudflare health checks, etc.)
+    if (url !== '/health' && !checkAuth(req, res)) return;
+
+    if (url === '/usage') {
+      if (!_latestData) collect();
+      const publicData = Object.fromEntries(
+        Object.entries(_latestData).filter(([k]) => !k.startsWith('_'))
+      );
+      sendJSON(res, 200, publicData);
+
+    } else if (url === '/usage/debug') {
+      if (!_latestData) collect();
+      sendJSON(res, 200, _latestData);
+
+    } else if (url === '/health') {
+      sendJSON(res, 200, { status: 'ok', timestamp: new Date().toISOString() });
+
+    } else if (url === '/') {
+      cors(res);
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end([
+        'Claude Code Usage Bridge — running',
+        '',
+        'Endpoints:',
+        '  GET /usage        — public stats (for Rabbit)',
+        '  GET /usage/debug  — stats + debug breakdown',
+        '  GET /health       — heartbeat',
+        '',
+        `File mirror: ${FILE_OUTPUT}`,
+      ].join('\n'));
+
+    } else {
+      sendJSON(res, 404, { error: 'not found' });
+    }
+  });
+}
+
+
+// ─────────────────────────────────────────────
+// Discovery mode (--discover flag)
+// ─────────────────────────────────────────────
+function runDiscovery() {
+  console.log('\n=== LOG DISCOVERY ===');
+  const files = findJsonlFiles(JSONL_GLOBS);
+  console.log(`Found ${files.length} JSONL file(s):`);
+  files.slice(0, 8).forEach(f => {
+    const size = fs.statSync(f).size;
+    console.log(`  ${f}  (${(size / 1024).toFixed(1)} KB)`);
+  });
+  if (files.length > 8) console.log(`  ... and ${files.length - 8} more`);
+
+  console.log('\n=== SCHEMA SAMPLE ===');
+  const entries = parseUsageEntries(files.slice(0, 5));
+  console.log(`Usage entries found: ${entries.length}`);
+  if (entries.length) {
+    const e = entries[entries.length - 1];
+    console.log(`Latest entry: ${new Date(e.ts).toISOString()}  model=${e.model}  out=${e.outputTokens}`);
+  }
+
+  console.log('\n=== CURRENT STATS ===');
+  const data = collect();
+  const d = data._debug;
+  console.log(`current_percent : ${data.current_percent}%`);
+  console.log(`weekly_percent  : ${data.weekly_percent}%`);
+  console.log(`current_reset   : ${data.current_reset}`);
+  console.log(`weekly_reset    : ${data.weekly_reset}`);
+  console.log(`method          : ${d.method}`);
+  if (d.output_tokens_5h !== undefined) {
+    console.log(`output_tokens_5h: ${d.output_tokens_5h.toLocaleString()}`);
+    console.log(`output_tokens_7d: ${d.output_tokens_7d.toLocaleString()}`);
+  }
+  console.log(`messages_5h     : ${d.messages_5h}`);
+  console.log(`messages_7d     : ${d.messages_7d}`);
+  console.log(`\nFile output     : ${FILE_OUTPUT}`);
+}
+
+
+// ─────────────────────────────────────────────
+// Entry point
+// ─────────────────────────────────────────────
+const args = process.argv.slice(2);
+
+if (args.includes('--discover')) {
+  runDiscovery();
+  process.exit(0);
+}
+
+// Initial collect
+console.log('Claude Code Usage Bridge starting...');
+collect();
+
+// Poll every SCAN_MS for local/in-memory updates
+setInterval(collect, SCAN_MS);
+
+// Push to Gist on a separate slower timer (5 min) to avoid rate limits
+setInterval(() => { if (_latestData) pushToGist(_latestData); }, GIST_PUSH_MS);
+
+// Watch log directories for fast updates
+watchLogs();
+
+// Start HTTP server
+const server = createServer();
+server.listen(PORT, BIND, () => {
+  console.log(`Listening on http://${BIND}:${PORT}`);
+  console.log(`  /usage        — stats for Rabbit`);
+  console.log(`  /usage/debug  — stats + breakdown`);
+  console.log(`  /health       — heartbeat`);
+  console.log(`Auth: ${API_KEY ? 'enabled (x-api-key header)' : 'disabled (use tunnel)'}`);
+  console.log(`File mirror: ${FILE_OUTPUT}`);
+  console.log(`\nPress Ctrl+C to stop.`);
+});
+
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} already in use. Set PORT=<other> to change.`);
+  } else {
+    console.error('Server error:', err.message);
+  }
+  process.exit(1);
+});

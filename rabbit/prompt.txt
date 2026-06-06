@@ -1,0 +1,10 @@
+I am uploading two replacement files: main-src.js and style-src.css.
+
+Replace your existing main.js with the contents of main-src.js exactly as provided.
+Replace your existing style.css with the contents of style-src.css exactly as provided.
+
+Do NOT modify, reformat, rewrite, or change anything in either file.
+Do NOT add comments, remove code, or "improve" anything.
+Copy them byte for byte.
+
+After replacing, rebuild and run the app.
