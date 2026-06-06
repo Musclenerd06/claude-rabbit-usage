@@ -1,19 +1,17 @@
-I am uploading two files: main-src.js and style-src.css.
+I am uploading one file: main-src.js.
 
 RULES — read carefully before doing anything:
 
 1. Open main-src.js. Copy its ENTIRE contents into your main.js, replacing everything that was there. Not a summary. Not a rewrite. The full file, character for character.
 
-2. Open style-src.css. Copy its ENTIRE contents into your style.css, replacing everything that was there. Same rule — full file, nothing changed.
-
-3. You must NOT:
+2. You must NOT:
    - Reformat or prettify any code
    - Remove any functions, variables, or CSS rules
    - Add any comments or console.log statements
    - Rename anything
    - "Improve" or "simplify" anything
-   - Partially apply the files
+   - Partially apply the file
 
-4. If you are unsure about any line, copy it exactly as written.
+3. If you are unsure about any line, copy it exactly as written.
 
-5. After both files are fully replaced, rebuild and run the app.
+4. After main.js is fully replaced, rebuild and run the app.
