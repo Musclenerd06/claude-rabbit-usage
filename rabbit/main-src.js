@@ -1,4 +1,4 @@
-let apiUrl = `https://gist.githubusercontent.com/Musclenerd06/8d5cd0b32306efa71751eb9458d03835/raw/usage.json`;
+let apiUrl = ``;
 const REFRESH_INTERVAL = 30000;
 const MAX_TOKENS_5H = 572626;
 const MAX_TOKENS_7D = 3991104;
@@ -220,11 +220,11 @@ function renderSettings() {
   });
 
   document.getElementById('btnReset').addEventListener('click', async () => {
-    apiUrl = `https://gist.githubusercontent.com/Musclenerd06/8d5cd0b32306efa71751eb9458d03835/raw/usage.json?t=${Date.now()}`;
-    document.getElementById('urlInput').value = apiUrl;
+    apiUrl = ``;
+    document.getElementById('urlInput').value = '';
     await saveEndpoint(apiUrl);
-    showSettings = false;
-    fetchData();
+    firstLaunch = true;
+    renderSettings();
   });
 }
 
