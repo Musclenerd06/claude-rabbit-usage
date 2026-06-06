@@ -315,12 +315,28 @@ function calcFromTimestamps(ts_list) {
 // ─────────────────────────────────────────────
 // GitHub Gist push (with rate-limit backoff)
 // ─────────────────────────────────────────────
-let _gistBackoffUntil = 0; // timestamp — skip pushes until this clears
+// gist_update resource limit: 100 PATCH/hr.
+// We pace pushes dynamically: interval = time_until_reset / remaining,
+// floored at 36s (= 100/hr ceiling) and capped at 120s.
+let _gistBackoffUntil  = 0;     // epoch ms — skip all pushes until this clears
+let _gistLastPushedAt  = 0;     // epoch ms — enforce computed interval
+let _gistRemaining     = 100;   // updated from x-ratelimit-remaining header
+let _gistResetEpoch    = 0;     // updated from x-ratelimit-reset header
 let _lastPushedPercent = null;
+
+function gistIntervalMs() {
+  const now = Date.now();
+  const timeLeft = _gistResetEpoch > 0 ? (_gistResetEpoch * 1000 - now) : 3600000;
+  if (_gistRemaining <= 0 || timeLeft <= 0) return Infinity;
+  const dynamic = timeLeft / _gistRemaining;
+  return Math.min(Math.max(dynamic, 36000), 120000); // 36s–120s
+}
 
 function pushToGist(data) {
   if (!GITHUB_TOKEN || !GIST_ID) return;
-  if (Date.now() < _gistBackoffUntil) return; // backed off
+  const now = Date.now();
+  if (now < _gistBackoffUntil) return; // rate-limited
+  if (now - _gistLastPushedAt < gistIntervalMs()) return; // pacing
 
   // Skip push if nothing changed (saves quota)
   if (data.current_percent === _lastPushedPercent) return;
@@ -331,6 +347,8 @@ function pushToGist(data) {
   const body = JSON.stringify({
     files: { 'usage.json': { content: JSON.stringify(publicData, null, 2) } }
   });
+
+  _gistLastPushedAt = now; // mark attempt time before the async response
 
   const req = https.request({
     hostname: 'api.github.com',
@@ -343,20 +361,35 @@ function pushToGist(data) {
       'Content-Length': Buffer.byteLength(body),
     }
   }, res => {
+    // Always track remaining quota from headers
+    const remaining  = Number(res.headers['x-ratelimit-remaining'] ?? _gistRemaining);
+    const resetEpoch = Number(res.headers['x-ratelimit-reset'] || 0);
+    _gistRemaining = remaining;
+    if (resetEpoch > 0) _gistResetEpoch = resetEpoch;
+
     let raw = '';
     res.on('data', c => { raw += c; });
     res.on('end', () => {
       if (res.statusCode === 200 || res.statusCode === 201) {
         _lastPushedPercent = data.current_percent;
-        console.log(`[gist] Pushed ${data.current_percent}% OK`);
+        const nextSec = Math.round(gistIntervalMs() / 1000);
+        console.log(`[gist] Pushed ${data.current_percent}% OK  (quota: ${remaining} left, next in ~${nextSec}s)`);
       } else if (res.statusCode === 403 || res.statusCode === 429) {
-        const retryAfter = Number(res.headers['retry-after'] || 0);
-        const backoffMs = retryAfter > 0 ? retryAfter * 1000 : 15 * 60 * 1000;
-        _gistBackoffUntil = Date.now() + backoffMs;
+        // Use Retry-After if present, else wait until the reset epoch, else 20 min
+        const retryAfterSec = Number(res.headers['retry-after'] || 0);
+        let backoffUntil;
+        if (retryAfterSec > 0) {
+          backoffUntil = Date.now() + retryAfterSec * 1000;
+        } else if (resetEpoch > 0) {
+          backoffUntil = resetEpoch * 1000 + 5000; // 5s past reset
+        } else {
+          backoffUntil = Date.now() + 20 * 60 * 1000;
+        }
+        _gistBackoffUntil = backoffUntil;
         let msg = raw;
         try { msg = JSON.parse(raw).message || raw; } catch (_) {}
-        const backoffMin = Math.ceil(backoffMs / 60000);
-        console.log(`[gist] HTTP ${res.statusCode}: ${msg} — backing off ${backoffMin} min`);
+        const waitMin = Math.ceil((backoffUntil - Date.now()) / 60000);
+        console.log(`[gist] HTTP ${res.statusCode} — backing off ${waitMin} min. ${msg}`);
       } else {
         console.log(`[gist] HTTP ${res.statusCode}: ${raw.slice(0, 200)}`);
       }
