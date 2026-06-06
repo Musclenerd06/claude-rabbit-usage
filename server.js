@@ -74,6 +74,31 @@ const WINDOW_5H = 5 * 3600 * 1000; // ms
 const WEEKLY_RESET_DAY  = 1;   // Monday
 const WEEKLY_RESET_HOUR = 17;  // 17:00 UTC
 
+// 5-hour fixed-window anchor (UTC minutes from midnight).
+// Claude Code uses fixed windows, not rolling.
+// Set RESET_ANCHOR_UTC in .env to "HH:MM" of any known reset time.
+// e.g. RESET_ANCHOR_UTC=17:30 means windows start at 2:30,7:30,12:30,17:30,22:30 UTC.
+// Defaults to rolling window if not set.
+const RESET_ANCHOR_UTC = process.env.RESET_ANCHOR_UTC || '';
+
+function getCurrent5hWindowStart() {
+  if (!RESET_ANCHOR_UTC) return Date.now() - WINDOW_5H; // rolling fallback
+  const [hStr, mStr] = RESET_ANCHOR_UTC.split(':');
+  const anchorMinutes = Number(hStr) * 60 + Number(mStr); // minutes from UTC midnight
+  const now = Date.now();
+  const todayMidnightUTC = new Date();
+  todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+  const base = todayMidnightUTC.getTime() + anchorMinutes * 60000;
+  // Find most recent window start <= now
+  const elapsed = now - base;
+  const windowsElapsed = Math.floor(elapsed / WINDOW_5H);
+  return base + windowsElapsed * WINDOW_5H;
+}
+
+function getNext5hWindowReset() {
+  return getCurrent5hWindowStart() + WINDOW_5H;
+}
+
 
 // ─────────────────────────────────────────────
 // File discovery
@@ -205,24 +230,25 @@ function getNextWeeklyResetTime() {
 }
 
 function calcFromUsageEntries(entries) {
-  const now       = Date.now();
-  const weekStart = getWeeklyResetTime().getTime();
+  const now        = Date.now();
+  const weekStart  = getWeeklyResetTime().getTime();
+  const win5hStart = getCurrent5hWindowStart();
 
-  const e5h  = entries.filter(e => now - e.ts <= WINDOW_5H);
+  const e5h   = entries.filter(e => e.ts >= win5hStart);
   const eWeek = entries.filter(e => e.ts >= weekStart);
 
-  const out5h  = e5h.reduce((s, e) => s + e.outputTokens, 0);
+  const out5h   = e5h.reduce((s, e) => s + e.outputTokens, 0);
   const outWeek = eWeek.reduce((s, e) => s + e.outputTokens, 0);
 
-  const currentPct = Math.min(100, +(out5h   / MAX_OUTPUT_TOKENS_5H * 100).toFixed(1));
-  const weeklyPct  = Math.min(100, +(outWeek / MAX_OUTPUT_TOKENS_7D * 100).toFixed(1));
+  const currentPct = Math.min(100, Math.floor(out5h   / MAX_OUTPUT_TOKENS_5H * 100));
+  const weeklyPct  = Math.min(100, Math.floor(outWeek / MAX_OUTPUT_TOKENS_7D * 100));
 
-  const oldestTs5h = e5h.length ? e5h[0].ts : now;
+  const nextReset = getNext5hWindowReset();
 
   return {
     current_percent: currentPct,
     weekly_percent:  weeklyPct,
-    current_reset:   new Date(oldestTs5h + WINDOW_5H).toISOString().replace('.000Z', 'Z'),
+    current_reset:   new Date(nextReset).toISOString().replace('.000Z', 'Z'),
     weekly_reset:    getNextWeeklyResetTime().toISOString().replace('.000Z', 'Z'),
     last_updated:    new Date().toISOString().replace('.000Z', 'Z'),
     current_tokens:  out5h,
@@ -609,8 +635,7 @@ collect();
 // Poll every SCAN_MS for local/in-memory updates
 setInterval(collect, SCAN_MS);
 
-// Push to Gist on a separate slower timer (5 min) to avoid rate limits
-setInterval(() => { if (_latestData) pushToGist(_latestData); }, GIST_PUSH_MS);
+// Gist push now happens inside collect() on every scan cycle
 
 // Watch log directories for fast updates
 watchLogs();
