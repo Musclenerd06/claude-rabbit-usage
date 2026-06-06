@@ -16,7 +16,7 @@ Created by Arnold Haxinator.
          │
          ├── localhost:5050  ← local HTTP endpoint
          │
-         └── GitHub Gist    ← public relay, pushed every 5 min
+         └── GitHub Gist    ← public relay, pushed every 30s
                   │
                   ▼
            Rabbit R1 app    ← fetches Gist, displays usage
@@ -36,12 +36,24 @@ No paid APIs. No cloud accounts. Just GitHub (free) and your existing Claude Cod
 
 ---
 
-## Setup
+## Quick install (recommended)
+
+Run this single command in WSL:
+
+```bash
+bash <(curl -sSL https://raw.githubusercontent.com/Musclenerd06/claude-rabbit-usage/main/install.sh)
+```
+
+It checks prerequisites, clones the repo, walks you through Gist setup, writes `.env`, tests the server, and puts a shortcut on your Windows Desktop. When it finishes, copy the Gist URL it prints into the Rabbit app settings.
+
+---
+
+## Manual setup
 
 ### Step 1 — Clone the repo (in WSL)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/claude-rabbit-usage.git ~/claude-rabbit-usage
+git clone https://github.com/Musclenerd06/claude-rabbit-usage.git ~/claude-rabbit-usage
 cd ~/claude-rabbit-usage
 ```
 
@@ -184,7 +196,7 @@ Once running, the server exposes:
 - Check `~/.claude/projects/` exists and has `.jsonl` files
 
 **Gist not updating**
-- Gist pushes every 5 minutes — wait and refresh
+- Gist pushes every 30 seconds — if stale, wait one cycle and refresh
 - Check your token has `gist` scope
 - Check the token hasn't expired
 
