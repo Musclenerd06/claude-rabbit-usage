@@ -92,66 +92,6 @@ function loadJsQR() {
   });
 }
 
-function loadQrCodeLib() {
-  return new Promise((resolve, reject) => {
-    if (window.QRCode) { resolve(); return; }
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js';
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-/* ── QR Code Generator ─────────────────────────────────────────── */
-
-function closeMyQrCode() {
-  const ov = document.getElementById('qrGenOverlay');
-  if (ov) ov.remove();
-}
-
-async function showMyQrCode() {
-  const app = document.getElementById('app');
-  const overlay = document.createElement('div');
-  overlay.id = 'qrGenOverlay';
-  overlay.className = 'qr-overlay';
-  overlay.innerHTML = `
-    <div class="qr-header">
-      <span class="qr-title">Your QR Code</span>
-      <button class="btn-back" id="btnCloseQrGen">✕</button>
-    </div>
-    <div class="qr-gen-body" id="qrGenBody">
-      <canvas id="qrGenCanvas" class="qr-gen-canvas"></canvas>
-      <p class="qr-gen-url" id="qrGenUrl"></p>
-      <p class="qr-hint" style="position:static;background:none;padding:0;margin-top:1vh;font-size:3.2vw;color:#9ca3af;">Others scan this to use your Gist</p>
-    </div>
-  `;
-  app.appendChild(overlay);
-  document.getElementById('btnCloseQrGen').addEventListener('click', closeMyQrCode);
-
-  const urlEl = document.getElementById('qrGenUrl');
-  const urlToEncode = apiUrl.split('?')[0]; // strip cache-bust param
-  if (urlEl) urlEl.textContent = urlToEncode;
-
-  try {
-    await loadQrCodeLib();
-    const canvas = document.getElementById('qrGenCanvas');
-    if (!canvas) return;
-    window.QRCode.toCanvas(canvas, urlToEncode, {
-      width: Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.62),
-      margin: 2,
-      color: { dark: '#000000', light: '#ffffff' }
-    }, err => {
-      if (err) {
-        document.getElementById('qrGenBody').innerHTML =
-          `<p class="qr-hint" style="color:#ef4444">Could not generate QR code.<br>${err.message}</p>`;
-      }
-    });
-  } catch (e) {
-    document.getElementById('qrGenBody').innerHTML =
-      `<p class="qr-hint" style="color:#ef4444">Could not load QR library.<br>Check internet connection.</p>`;
-  }
-}
 
 function closeQrScanner() {
   if (qrAnimFrame) { cancelAnimationFrame(qrAnimFrame); qrAnimFrame = null; }
@@ -242,10 +182,7 @@ function renderSettings() {
       <div class="settings-body">
         <label class="input-label">Endpoint URL</label>
         <input type="text" id="urlInput" class="url-input" value="${apiUrl}" placeholder="Enter JSON endpoint URL" />
-        <div class="qr-btn-row">
-          <button class="btn-qr-scan" id="btnQrScan">Scan QR</button>
-          <button class="btn-qr-show" id="btnShowQr">My QR Code</button>
-        </div>
+        <button class="btn-qr-scan" id="btnQrScan">Scan QR Code</button>
         <div class="settings-actions">
           <button class="btn-save" id="btnSave">Save</button>
           <button class="btn-reset" id="btnReset">Reset</button>
@@ -263,7 +200,6 @@ function renderSettings() {
   });
 
   document.getElementById('btnQrScan').addEventListener('click', openQrScanner);
-  document.getElementById('btnShowQr').addEventListener('click', showMyQrCode);
 
   document.getElementById('btnSave').addEventListener('click', async () => {
     const val = document.getElementById('urlInput').value.trim();

@@ -439,6 +439,41 @@ function createServer() {
     } else if (url === '/health') {
       sendJSON(res, 200, { status: 'ok', timestamp: new Date().toISOString() });
 
+    } else if (url === '/qr') {
+      const gistUrl = GIST_ID
+        ? `https://gist.githubusercontent.com/raw/${GIST_ID}/usage.json`
+        : '';
+      cors(res);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Usage — Share QR</title>
+<style>
+  body { margin:0; background:#000; color:#fff; font-family:-apple-system,sans-serif;
+         display:flex; flex-direction:column; align-items:center; justify-content:center;
+         min-height:100vh; padding:24px; box-sizing:border-box; }
+  h2 { font-size:1.3rem; margin:0 0 8px; color:#FE5F00; }
+  p  { font-size:.85rem; color:#6b7280; margin:0 0 24px; text-align:center; }
+  canvas { border:4px solid #fff; border-radius:12px; }
+  .url { margin-top:20px; font-size:.75rem; color:#4b5563; word-break:break-all;
+         max-width:340px; text-align:center; font-family:monospace; }
+  .none { color:#ef4444; font-size:1rem; }
+</style>
+</head>
+<body>
+<h2>Scan to configure Rabbit app</h2>
+<p>Point your Rabbit at this code — it fills in the endpoint automatically.</p>
+${gistUrl
+  ? `<canvas id="qr"></canvas><p class="url">${gistUrl}</p>
+     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"><\/script>
+     <script>QRCode.toCanvas(document.getElementById('qr'),'${gistUrl}',{width:280,margin:2})<\/script>`
+  : `<p class="none">GIST_ID not configured in .env — set it up first.</p>`}
+</body>
+</html>`);
+
     } else if (url === '/') {
       cors(res);
       res.writeHead(200, { 'Content-Type': 'text/plain' });
