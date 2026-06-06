@@ -92,7 +92,8 @@ const HISTORY_FILES = [
 //   1,687,875 output tokens = 43% weekly → cap = 3,925,290
 //   412,291 output tokens = 72% current  → cap = 572,626  (2026-06-06 recalibration)
 //   2,370,452 output tokens = 55% weekly → cap = 4,310,000 (2026-06-06 recalibration)
-const MAX_OUTPUT_TOKENS_5H = 572_626;
+//   519,683 disk tokens = 98% current   → cap = 530,289   (2026-06-06 recalibration, accounts for in-memory lag)
+const MAX_OUTPUT_TOKENS_5H = 530_289;
 const MAX_OUTPUT_TOKENS_7D = 4_310_000;
 const MAX_MESSAGES_5H      = 300;   // fallback only
 const MAX_MESSAGES_7D      = 2_000; // fallback only
