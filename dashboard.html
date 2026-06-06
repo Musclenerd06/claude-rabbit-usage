@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude Usage Monitor</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+
+/* Header */
+.header{background:#111;border-bottom:1px solid #1f1f1f;padding:18px 28px;display:flex;align-items:center;gap:14px}
+.header-logo{width:36px;height:36px;background:#FE5F00;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:900;color:#fff;flex-shrink:0}
+.header-text h1{font-size:1.15rem;font-weight:700;color:#fff}
+.header-text p{font-size:.78rem;color:#6b7280;margin-top:1px}
+.header-status{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:.82rem}
+.dot{width:8px;height:8px;border-radius:50%;background:#22c55e;animation:pulse 2s ease-in-out infinite;flex-shrink:0}
+.dot.offline{background:#ef4444;animation:none}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+
+/* Tabs */
+.tabs{display:flex;border-bottom:1px solid #1f1f1f;background:#111;padding:0 28px}
+.tab{padding:14px 20px;font-size:.88rem;font-weight:600;color:#6b7280;cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s}
+.tab:hover{color:#d1d5db}
+.tab.active{color:#FE5F00;border-bottom-color:#FE5F00}
+
+/* Content */
+.content{max-width:780px;margin:0 auto;padding:32px 28px}
+.section{display:none}
+.section.active{display:block}
+
+/* Cards */
+.card{background:#111;border:1px solid #1f1f1f;border-radius:12px;padding:24px;margin-bottom:20px}
+.card h2{font-size:1rem;font-weight:700;color:#fff;margin-bottom:6px}
+.card p{font-size:.84rem;color:#6b7280;line-height:1.6}
+
+/* Setup Steps */
+.step{display:flex;gap:14px;align-items:flex-start;padding:16px 0;border-bottom:1px solid #1a1a1a}
+.step:last-child{border-bottom:none;padding-bottom:0}
+.step-num{width:28px;height:28px;border-radius:50%;background:#1f1f1f;border:1px solid #333;display:flex;align-items:center;justify-content:center;font-size:.78rem;font-weight:700;flex-shrink:0;margin-top:2px}
+.step-num.done{background:#14532d;border-color:#22c55e;color:#22c55e}
+.step-num.active-step{background:#431407;border-color:#FE5F00;color:#FE5F00}
+.step-body{flex:1}
+.step-title{font-size:.9rem;font-weight:600;color:#fff;margin-bottom:4px}
+.step-desc{font-size:.81rem;color:#6b7280;line-height:1.6;margin-bottom:10px}
+.step-desc a{color:#FE5F00;text-decoration:none}
+.step-desc a:hover{text-decoration:underline}
+.step-check{font-size:.8rem;color:#22c55e;font-weight:600;display:flex;align-items:center;gap:5px}
+.step-check.fail{color:#ef4444}
+
+/* Inputs */
+.field{margin-bottom:14px}
+.field label{display:block;font-size:.78rem;color:#9ca3af;font-weight:700;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+.field input{width:100%;background:#0d0d0d;border:1px solid #2a2a2a;border-radius:8px;color:#fff;font-size:.88rem;padding:10px 14px;outline:none;font-family:monospace;transition:border-color .15s}
+.field input:focus{border-color:#FE5F00}
+.field input::placeholder{color:#374151}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:7px;border:none;border-radius:8px;padding:10px 18px;font-size:.88rem;font-weight:700;cursor:pointer;transition:opacity .15s,transform .05s}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:#FE5F00;color:#fff}
+.btn-primary:hover{opacity:.9}
+.btn-secondary{background:#1f1f1f;color:#d1d5db;border:1px solid #2a2a2a}
+.btn-secondary:hover{background:#252525}
+.btn-danger{background:#1f1f1f;color:#ef4444;border:1px solid #2a2a2a}
+.btn-danger:hover{background:#200a0a}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* Status bars */
+.stat-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.stat-label{width:90px;font-size:.8rem;color:#6b7280;font-weight:600;flex-shrink:0}
+.stat-bar{flex:1;height:10px;background:#1a1a1a;border-radius:5px;overflow:hidden}
+.stat-bar-fill{height:100%;border-radius:5px;transition:width .6s ease}
+.stat-val{width:42px;text-align:right;font-size:.88rem;font-weight:700;flex-shrink:0}
+.stat-reset{font-size:.78rem;color:#4b5563;margin-left:90px;margin-bottom:16px;margin-top:-8px}
+
+/* QR section */
+.qr-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:560px){.qr-grid{grid-template-columns:1fr}}
+.qr-card{background:#111;border:1px solid #1f1f1f;border-radius:12px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
+.qr-card h3{font-size:.92rem;font-weight:700;color:#fff}
+.qr-card p{font-size:.78rem;color:#6b7280;line-height:1.5}
+.qr-img{border:3px solid #fff;border-radius:10px;max-width:100%;display:block}
+.qr-url{font-size:.68rem;color:#374151;word-break:break-all;font-family:monospace;margin-top:4px}
+.qr-not-configured{color:#ef4444;font-size:.84rem;padding:20px 0}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:#1f1f1f;border:1px solid #374151;color:#fff;padding:12px 18px;border-radius:10px;font-size:.85rem;opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:none;z-index:999}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.ok{border-color:#22c55e;color:#22c55e}
+.toast.err{border-color:#ef4444;color:#ef4444}
+
+/* Misc */
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.badge{display:inline-block;background:#1f1f1f;border:1px solid #2a2a2a;border-radius:20px;padding:3px 10px;font-size:.74rem;color:#6b7280}
+.badge.green{border-color:#166534;color:#22c55e;background:#052e16}
+.badge.red{border-color:#7f1d1d;color:#ef4444;background:#1f0505}
+.sep{height:1px;background:#1a1a1a;margin:20px 0}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-logo">C</div>
+  <div class="header-text">
+    <h1>Claude Usage Monitor</h1>
+    <p>by Arnold Haxinator</p>
+  </div>
+  <div class="header-status">
+    <div class="dot" id="serverDot"></div>
+    <span id="serverStatusText">Checking...</span>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="setup">Setup</div>
+  <div class="tab" data-tab="status">Server Status</div>
+  <div class="tab" data-tab="qr">QR Codes</div>
+</div>
+
+<div class="content">
+
+  <!-- ── SETUP ── -->
+  <div class="section active" id="tab-setup">
+
+    <div class="card">
+      <h2>Getting Started</h2>
+      <p>Follow these steps once. Takes about 5 minutes.</p>
+    </div>
+
+    <div class="card">
+
+      <div class="step">
+        <div class="step-num done" id="s1num">1</div>
+        <div class="step-body">
+          <div class="step-title">Server is running</div>
+          <div class="step-desc">If you can see this page, you're good.</div>
+          <div class="step-check" id="s1check">✓ Running on port 5050</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num" id="s2num">2</div>
+        <div class="step-body">
+          <div class="step-title">Claude Code logs found</div>
+          <div class="step-desc">The server needs at least one conversation in Claude Code on this machine to read token data from.</div>
+          <div id="s2check" class="step-check fail">Checking...</div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num" id="s3num">3</div>
+        <div class="step-body">
+          <div class="step-title">Create a GitHub Gist</div>
+          <div class="step-desc">
+            The Gist is a free public file that relays your usage data to the Rabbit.<br><br>
+            1. Open <a href="https://gist.github.com" target="_blank">gist.github.com</a><br>
+            2. Create a <strong>public</strong> gist — filename: <code>usage.json</code>, content: <code>{}</code><br>
+            3. Copy the ID from the URL (the long string at the end)
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num" id="s4num">4</div>
+        <div class="step-body">
+          <div class="step-title">Create a GitHub token</div>
+          <div class="step-desc">
+            The token lets the server push updates to your Gist.<br><br>
+            1. Open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
+            2. Name it anything (e.g. <em>claude-usage</em>)<br>
+            3. Select scope: <strong>gist</strong> only<br>
+            4. Click Generate — copy the token (you only see it once)
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num" id="s5num">5</div>
+        <div class="step-body">
+          <div class="step-title">Enter your credentials</div>
+          <div class="step-desc">These are saved to a local <code>.env</code> file. Never shared.</div>
+          <div class="field" style="margin-top:12px">
+            <label>Gist ID</label>
+            <input type="text" id="inputGistId" placeholder="e.g. 8d5cd0b32306efa71751eb9458d03835" />
+          </div>
+          <div class="field">
+            <label>GitHub Token</label>
+            <input type="password" id="inputToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+          </div>
+          <div id="configStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px"></div>
+          <div class="row" style="margin-top:0">
+            <button class="btn btn-primary" id="btnSaveConfig">Deploy &amp; Save</button>
+            <button class="btn btn-secondary" id="btnTestConfig" style="display:none">Test Connection</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── STATUS ── -->
+  <div class="section" id="tab-status">
+
+    <div class="card">
+      <h2>Server</h2>
+      <div style="display:flex;align-items:center;gap:10px;margin:10px 0 16px">
+        <div class="dot" id="statusDot"></div>
+        <span id="statusLabel" style="font-size:.9rem;font-weight:600">Connecting...</span>
+        <span id="configBadge" class="badge" style="margin-left:auto"></span>
+      </div>
+      <div class="row">
+        <button class="btn btn-secondary" id="btnRestart">↺ Restart Server</button>
+        <button class="btn btn-secondary" id="btnForceCollect">⟳ Force Refresh Now</button>
+      </div>
+    </div>
+
+    <div class="card" id="statsCard">
+      <h2>Current Usage</h2>
+      <div style="margin-top:16px">
+        <div class="stat-row">
+          <div class="stat-label">5h Window</div>
+          <div class="stat-bar"><div class="stat-bar-fill" id="bar5h" style="width:0%"></div></div>
+          <div class="stat-val" id="pct5h">—</div>
+        </div>
+        <div class="stat-reset" id="reset5h"></div>
+        <div class="stat-row">
+          <div class="stat-label">Weekly</div>
+          <div class="stat-bar"><div class="stat-bar-fill" id="barWeek" style="width:0%"></div></div>
+          <div class="stat-val" id="pctWeek">—</div>
+        </div>
+        <div class="stat-reset" id="resetWeek"></div>
+      </div>
+      <div style="margin-top:8px;font-size:.78rem;color:#374151" id="lastUpdatedStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>Log Files</h2>
+      <p id="logInfo" style="margin-top:6px">Checking...</p>
+    </div>
+
+  </div>
+
+  <!-- ── QR CODES ── -->
+  <div class="section" id="tab-qr">
+
+    <div class="card" style="margin-bottom:16px">
+      <h2>QR Codes</h2>
+      <p>Two QR codes — one to add the app to any Rabbit R1, one to configure the endpoint with your Gist.</p>
+    </div>
+
+    <div class="qr-grid">
+
+      <div class="qr-card">
+        <h3>Add App to Rabbit R1</h3>
+        <p>Scan this with your Rabbit to install the Claude Usage Monitor app.</p>
+        <img class="qr-img" id="appQrImg" src="/app-qr.png" alt="App QR Code" style="width:220px;height:220px;object-fit:contain" />
+        <p style="font-size:.74rem;color:#374151">Scan once per device</p>
+      </div>
+
+      <div class="qr-card">
+        <h3>Your Gist URL</h3>
+        <p>Scan this inside the Rabbit app (⚙ → Scan QR) to configure your personal endpoint.</p>
+        <div id="gistQrWrap">
+          <div class="qr-not-configured">Configure your Gist ID in Setup first</div>
+        </div>
+        <div class="qr-url" id="gistUrlText"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+<script>
+// ── Tab switching ──────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Toast ─────────────────────────────────────────────────────
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + (type || '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ── Helpers ───────────────────────────────────────────────────
+function barColor(pct) {
+  if (pct >= 80) return '#ef4444';
+  if (pct >= 50) return '#eab308';
+  return '#22c55e';
+}
+
+function calcTimeRemaining(iso) {
+  if (!iso) return '—';
+  const diff = new Date(iso).getTime() - Date.now();
+  if (diff <= 0) return 'now';
+  const m = Math.floor(diff / 60000);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return d + 'd ' + (h % 24) + 'h';
+  if (h > 0) return h + 'h ' + (m % 60) + 'm';
+  return m + 'm';
+}
+
+function timeSince(iso) {
+  if (!iso) return '—';
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 10) return 'just now';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  return Math.floor(s / 3600) + 'h ago';
+}
+
+// ── Status polling ─────────────────────────────────────────────
+let _gistUrl = '';
+
+async function loadStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+
+    // Header dot
+    document.getElementById('serverDot').className = 'dot';
+    document.getElementById('serverStatusText').textContent = 'Running';
+
+    // Setup steps
+    const logsOk = d.logs_found;
+    document.getElementById('s2num').className = 'step-num ' + (logsOk ? 'done' : 'active-step');
+    const s2c = document.getElementById('s2check');
+    s2c.className = 'step-check' + (logsOk ? '' : ' fail');
+    s2c.textContent = logsOk
+      ? `✓ ${d.log_count} log file(s) found`
+      : '✗ No Claude Code logs found — run Claude Code first';
+
+    const envOk = d.gist_configured;
+    document.getElementById('s3num').className = 'step-num ' + (envOk ? 'done' : '');
+    document.getElementById('s4num').className = 'step-num ' + (envOk ? 'done' : '');
+    document.getElementById('s5num').className = 'step-num ' + (envOk ? 'done' : 'active-step');
+
+    if (envOk && !document.getElementById('inputGistId').value) {
+      document.getElementById('configStatus').style.color = '#22c55e';
+      document.getElementById('configStatus').textContent = '✓ Credentials saved and server is pushing to Gist';
+    }
+
+    // Status tab
+    document.getElementById('statusDot').className = 'dot';
+    document.getElementById('statusLabel').textContent = 'Server running';
+    document.getElementById('configBadge').textContent = envOk ? 'Gist configured' : 'Gist not configured';
+    document.getElementById('configBadge').className = 'badge ' + (envOk ? 'green' : 'red');
+
+    if (d.current_percent !== null) {
+      const p5 = d.current_percent;
+      const pw = d.weekly_percent;
+      document.getElementById('bar5h').style.width  = p5 + '%';
+      document.getElementById('bar5h').style.background = barColor(p5);
+      document.getElementById('pct5h').textContent  = p5 + '%';
+      document.getElementById('pct5h').style.color  = barColor(p5);
+      document.getElementById('reset5h').textContent = 'Resets in ' + calcTimeRemaining(d.current_reset);
+      document.getElementById('barWeek').style.width = pw + '%';
+      document.getElementById('barWeek').style.background = barColor(pw);
+      document.getElementById('pctWeek').textContent = pw + '%';
+      document.getElementById('pctWeek').style.color = barColor(pw);
+      document.getElementById('resetWeek').textContent = 'Resets in ' + calcTimeRemaining(d.weekly_reset);
+      document.getElementById('lastUpdatedStatus').textContent = 'Last updated: ' + timeSince(d.last_updated);
+    }
+
+    document.getElementById('logInfo').textContent = d.logs_found
+      ? `${d.log_count} JSONL file(s) found in ~/.claude/projects`
+      : 'No log files found — use Claude Code on this machine first';
+
+    // QR tab — gist
+    if (d.gist_url && d.gist_url !== _gistUrl) {
+      _gistUrl = d.gist_url;
+      renderGistQr(d.gist_url);
+      document.getElementById('gistUrlText').textContent = d.gist_url;
+    }
+
+  } catch(e) {
+    document.getElementById('serverDot').className = 'dot offline';
+    document.getElementById('serverStatusText').textContent = 'Cannot reach server';
+    document.getElementById('statusDot').className = 'dot offline';
+    document.getElementById('statusLabel').textContent = 'Server unreachable';
+  }
+}
+
+function renderGistQr(url) {
+  const wrap = document.getElementById('gistQrWrap');
+  wrap.innerHTML = '<canvas id="gistQrCanvas"></canvas>';
+  window.QRCode.toCanvas(document.getElementById('gistQrCanvas'), url, {
+    width: 220, margin: 2,
+    color: { dark: '#000000', light: '#ffffff' }
+  }, err => {
+    if (err) wrap.innerHTML = '<div class="qr-not-configured">QR generation failed</div>';
+    else {
+      const c = document.getElementById('gistQrCanvas');
+      c.style.borderRadius = '10px';
+      c.style.border = '3px solid #fff';
+    }
+  });
+}
+
+loadStatus();
+setInterval(loadStatus, 8000);
+setInterval(() => {
+  // Keep reset timers live without a full status reload
+  const r5 = document.getElementById('reset5h');
+  const rw = document.getElementById('resetWeek');
+  // These get refreshed on next loadStatus — fast enough
+}, 1000);
+
+// ── Save config ───────────────────────────────────────────────
+document.getElementById('btnSaveConfig').addEventListener('click', async () => {
+  const gistId = document.getElementById('inputGistId').value.trim();
+  const token  = document.getElementById('inputToken').value.trim();
+  const status = document.getElementById('configStatus');
+
+  if (!gistId || !token) {
+    status.style.color = '#ef4444';
+    status.textContent = 'Both Gist ID and GitHub Token are required.';
+    return;
+  }
+
+  status.style.color = '#6b7280';
+  status.textContent = 'Saving...';
+
+  try {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ gist_id: gistId, github_token: token })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      status.style.color = '#22c55e';
+      status.textContent = '✓ Saved! Server is now pushing to your Gist.';
+      document.getElementById('inputToken').value = '';
+      toast('Credentials saved', 'ok');
+      setTimeout(loadStatus, 1500);
+    } else {
+      status.style.color = '#ef4444';
+      status.textContent = 'Error: ' + (d.error || 'unknown');
+    }
+  } catch(e) {
+    status.style.color = '#ef4444';
+    status.textContent = 'Failed to reach server.';
+  }
+});
+
+// ── Restart ───────────────────────────────────────────────────
+document.getElementById('btnRestart').addEventListener('click', async () => {
+  if (!confirm('Restart the bridge server? It will be back in ~2 seconds.')) return;
+  try {
+    await fetch('/api/restart', { method: 'POST' });
+    toast('Restarting...', '');
+    setTimeout(loadStatus, 2500);
+  } catch(_) {
+    toast('Restarting... (page will reconnect)', '');
+    setTimeout(loadStatus, 3000);
+  }
+});
+
+// ── Force collect ─────────────────────────────────────────────
+document.getElementById('btnForceCollect').addEventListener('click', async () => {
+  try {
+    await fetch('/usage');
+    toast('Refresh triggered', 'ok');
+    setTimeout(loadStatus, 1000);
+  } catch(_) {}
+});
+</script>
+</body>
+</html>

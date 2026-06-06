@@ -42,11 +42,10 @@ const PORT         = Number(process.env.PORT || 5050);
 const BIND         = process.env.BIND || '127.0.0.1';
 const API_KEY      = process.env.API_KEY || '';
 const SCAN_MS      = (Number(process.env.SCAN_INTERVAL) || 30) * 1000;
-const GIST_PUSH_MS = 5 * 60 * 1000;   // push to Gist every 5 min only
 const FILE_OUTPUT  = '/mnt/c/Rabbit/data/usage.json';
 const DEBUG        = process.env.DEBUG === '1';
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
-const GIST_ID      = process.env.GIST_ID || '';
+let GITHUB_TOKEN   = process.env.GITHUB_TOKEN || '';
+let GIST_ID        = process.env.GIST_ID || '';
 
 const HOME = os.homedir();
 
@@ -474,19 +473,78 @@ ${gistUrl
 </body>
 </html>`);
 
+    } else if (url === '/api/status') {
+      const files = findJsonlFiles(JSONL_GLOBS);
+      if (!_latestData) collect();
+      const d = _latestData;
+      const gistUrl = GIST_ID
+        ? `https://gist.githubusercontent.com/${GIST_ID}/raw/usage.json`
+        : '';
+      sendJSON(res, 200, {
+        server:           'running',
+        logs_found:       files.length > 0,
+        log_count:        files.length,
+        gist_configured:  !!(GITHUB_TOKEN && GIST_ID),
+        gist_url:         gistUrl,
+        current_percent:  d ? d.current_percent  : null,
+        weekly_percent:   d ? d.weekly_percent   : null,
+        current_reset:    d ? d.current_reset    : null,
+        weekly_reset:     d ? d.weekly_reset     : null,
+        last_updated:     d ? d.last_updated     : null,
+        current_tokens:   d ? d.current_tokens   : null,
+        weekly_tokens:    d ? d.weekly_tokens    : null,
+      });
+
+    } else if (url === '/api/config' && req.method === 'POST') {
+      let body = '';
+      req.on('data', c => { body += c; });
+      req.on('end', () => {
+        try {
+          const { gist_id, github_token } = JSON.parse(body);
+          if (!gist_id || !github_token) {
+            return sendJSON(res, 400, { error: 'gist_id and github_token are required' });
+          }
+          // Write .env
+          const envPath = path.join(__dirname, '.env');
+          fs.writeFileSync(envPath, `GITHUB_TOKEN=${github_token.trim()}\nGIST_ID=${gist_id.trim()}\n`);
+          fs.chmodSync(envPath, 0o600);
+          // Hot-reload credentials
+          GITHUB_TOKEN = github_token.trim();
+          GIST_ID      = gist_id.trim();
+          // Immediate collect + push
+          collect();
+          sendJSON(res, 200, { ok: true });
+        } catch (e) {
+          sendJSON(res, 400, { error: e.message });
+        }
+      });
+
+    } else if (url === '/api/restart' && req.method === 'POST') {
+      sendJSON(res, 200, { ok: true, message: 'Restarting...' });
+      setTimeout(() => process.exit(42), 300); // 42 = restart signal for start.js
+
     } else if (url === '/') {
-      cors(res);
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end([
-        'Claude Code Usage Bridge — running',
-        '',
-        'Endpoints:',
-        '  GET /usage        — public stats (for Rabbit)',
-        '  GET /usage/debug  — stats + debug breakdown',
-        '  GET /health       — heartbeat',
-        '',
-        `File mirror: ${FILE_OUTPUT}`,
-      ].join('\n'));
+      // Serve dashboard
+      const dashPath = path.join(__dirname, 'dashboard.html');
+      if (fs.existsSync(dashPath)) {
+        cors(res);
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(fs.readFileSync(dashPath, 'utf8'));
+      } else {
+        cors(res);
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('Claude Usage Bridge running. dashboard.html not found.');
+      }
+
+    } else if (url === '/app-qr.png') {
+      const qrPath = path.join(__dirname, 'rabbit', 'app-qr.png');
+      if (fs.existsSync(qrPath)) {
+        cors(res);
+        res.writeHead(200, { 'Content-Type': 'image/png' });
+        res.end(fs.readFileSync(qrPath));
+      } else {
+        sendJSON(res, 404, { error: 'app-qr.png not found' });
+      }
 
     } else {
       sendJSON(res, 404, { error: 'not found' });

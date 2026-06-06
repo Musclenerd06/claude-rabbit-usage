@@ -21,7 +21,8 @@ Start-Sleep -Seconds 1
 
 # Start the server
 Write-Host "Starting bridge server..." -ForegroundColor Yellow
-wsl -e bash -c "nohup node $SERVER_PATH > $LOG_PATH 2>&1 & disown"
+$START_PATH = wsl -e bash -c "echo $HOME/claude-rabbit-usage/start.js"
+wsl -e bash -c "nohup node $START_PATH > $LOG_PATH 2>&1 & disown"
 Start-Sleep -Seconds 4
 
 # Verify
