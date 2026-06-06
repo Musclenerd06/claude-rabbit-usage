@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Claude Usage Monitor — Installer
-# Run from inside the cloned repo: bash install.sh
+# Claude Usage Monitor — One-line installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/Musclenerd06/claude-rabbit-usage/main/install.sh | bash
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/Musclenerd06/claude-rabbit-usage.git"
+INSTALL_DIR="$HOME/claude-rabbit-usage"
+
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 
@@ -19,7 +21,7 @@ echo -e "${CYAN}${BOLD}║   Claude Usage Monitor — Installer   ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Prerequisites ─────────────────────────────────────────────────────────
+# ── Prerequisites ──────────────────────────────────────────────────────────
 sep
 echo -e "${BOLD}Checking prerequisites...${NC}"
 echo ""
@@ -36,9 +38,16 @@ if ! command -v node &>/dev/null; then
 fi
 ok "Node.js $(node --version)"
 
+# git
+if ! command -v git &>/dev/null; then
+  err "git is required but not found. Install git and re-run."
+  exit 1
+fi
+ok "git found"
+
 # curl
 if ! command -v curl &>/dev/null; then
-  err "curl is required but not found. Install it and re-run."
+  err "curl is required but not found."
   exit 1
 fi
 ok "curl found"
@@ -56,18 +65,35 @@ fi
 LOG_COUNT=$(find "$CLAUDE_LOG_DIR" -name "*.jsonl" 2>/dev/null | wc -l)
 ok "Claude Code logs found ($LOG_COUNT .jsonl files)"
 
+# ── Clone / update repo ────────────────────────────────────────────────────
+echo ""
+sep
+echo -e "${BOLD}Getting latest code...${NC}"
+echo ""
+
+if [ -d "$INSTALL_DIR/.git" ]; then
+  git -C "$INSTALL_DIR" pull --ff-only origin main 2>&1 | tail -1
+  ok "Updated to latest — $INSTALL_DIR"
+else
+  git clone "$REPO_URL" "$INSTALL_DIR"
+  ok "Cloned to $INSTALL_DIR"
+fi
+
+cd "$INSTALL_DIR"
+npm install --silent
+ok "Dependencies installed"
+
 # ── .env setup ────────────────────────────────────────────────────────────
 echo ""
 sep
-echo -e "${BOLD}GitHub Gist setup${NC}"
+echo -e "${BOLD}GitHub setup${NC}"
 echo ""
 
-ENV_FILE="$SCRIPT_DIR/.env"
+ENV_FILE="$INSTALL_DIR/.env"
 GITHUB_TOKEN=""
 GIST_ID=""
 GITHUB_USER=""
 
-# Load existing .env values if present
 if [ -f "$ENV_FILE" ]; then
   # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
@@ -76,35 +102,32 @@ if [ -f "$ENV_FILE" ]; then
   GITHUB_USER="${GITHUB_USER:-}"
 fi
 
-# Ask for token if missing or invalid
-if [ -z "$GITHUB_TOKEN" ]; then
+if [ -n "$GITHUB_TOKEN" ] && [ -n "$GIST_ID" ]; then
+  ok "Already configured — GitHub user: ${BOLD}$GITHUB_USER${NC}, Gist: ${BOLD}$GIST_ID${NC}"
+else
   echo -e "  You need a GitHub token with ${BOLD}gist${NC} scope."
   echo -e "  Create one at: ${CYAN}https://github.com/settings/tokens/new${NC}"
-  echo -e "  Select scope: ${BOLD}gist${NC} only → click Generate token"
+  echo -e "  Select scope: ${BOLD}gist${NC} only → Generate token"
   echo ""
   while true; do
     read -rsp "  Paste your GitHub token: " GITHUB_TOKEN; echo ""
     [ -n "$GITHUB_TOKEN" ] && break
     warn "Token cannot be empty."
   done
-fi
 
-# Validate token
-echo ""
-echo -e "  Validating token..."
-USER_RESP=$(curl -sf -H "Authorization: token $GITHUB_TOKEN" \
-  -H "User-Agent: claude-usage-installer" \
-  https://api.github.com/user 2>/dev/null || echo '{}')
-GITHUB_USER=$(echo "$USER_RESP" | grep '"login"' | head -1 | cut -d'"' -f4)
-if [ -z "$GITHUB_USER" ]; then
-  err "Token is invalid or has no access. Check it and re-run."
-  exit 1
-fi
-ok "Token valid — GitHub user: ${BOLD}$GITHUB_USER${NC}"
+  echo ""
+  echo -e "  Validating token..."
+  USER_RESP=$(curl -sf -H "Authorization: token $GITHUB_TOKEN" \
+    -H "User-Agent: claude-usage-installer" \
+    https://api.github.com/user 2>/dev/null || echo '{}')
+  GITHUB_USER=$(echo "$USER_RESP" | grep '"login"' | head -1 | cut -d'"' -f4)
+  if [ -z "$GITHUB_USER" ]; then
+    err "Token is invalid or missing gist scope."
+    exit 1
+  fi
+  ok "Token valid — GitHub user: ${BOLD}$GITHUB_USER${NC}"
 
-# Create Gist if missing
-if [ -z "$GIST_ID" ]; then
-  echo -e "  Creating a Gist to relay your usage data..."
+  echo -e "  Creating Gist..."
   GIST_RESP=$(curl -sf -X POST \
     -H "Authorization: token $GITHUB_TOKEN" \
     -H "Content-Type: application/json" \
@@ -117,59 +140,27 @@ if [ -z "$GIST_ID" ]; then
     exit 1
   fi
   ok "Gist created: ${BOLD}$GIST_ID${NC}"
-else
-  ok "Gist already configured: ${BOLD}$GIST_ID${NC}"
+
+  # Optional reset anchor
+  echo ""
+  RESET_ANCHOR="${RESET_ANCHOR_UTC:-}"
+  if [ -z "$RESET_ANCHOR" ]; then
+    echo -e "  ${BOLD}Optional:${NC} your 5-hour reset time in UTC (e.g. 17:30)"
+    echo -e "  Press Enter to skip."
+    read -rp "  Reset anchor UTC (HH:MM or Enter): " RESET_ANCHOR
+  fi
+
+  {
+    echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+    echo "GIST_ID=$GIST_ID"
+    echo "GITHUB_USER=$GITHUB_USER"
+    [ -n "$RESET_ANCHOR" ] && echo "RESET_ANCHOR_UTC=$RESET_ANCHOR"
+  } > "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  ok ".env saved"
 fi
 
 GIST_URL="https://gist.githubusercontent.com/$GITHUB_USER/$GIST_ID/raw/usage.json"
-
-# Optional reset anchor
-echo ""
-RESET_ANCHOR="${RESET_ANCHOR_UTC:-}"
-if [ -z "$RESET_ANCHOR" ]; then
-  echo -e "  ${BOLD}Optional:${NC} your 5-hour reset time in UTC (e.g. 17:30)"
-  echo -e "  Find it by watching when Claude Code's usage resets. Press Enter to skip."
-  read -rp "  Reset anchor UTC (HH:MM or Enter to skip): " RESET_ANCHOR
-fi
-
-# Write .env
-{
-  echo "GITHUB_TOKEN=$GITHUB_TOKEN"
-  echo "GIST_ID=$GIST_ID"
-  echo "GITHUB_USER=$GITHUB_USER"
-  [ -n "$RESET_ANCHOR" ] && echo "RESET_ANCHOR_UTC=$RESET_ANCHOR"
-} > "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-ok ".env saved"
-
-# ── Test server ───────────────────────────────────────────────────────────
-echo ""
-sep
-echo -e "${BOLD}Testing server...${NC}"
-echo ""
-
-fuser -k 5050/tcp 2>/dev/null || true
-sleep 1
-
-node "$SCRIPT_DIR/server.js" > /tmp/claude-usage-install-test.log 2>&1 &
-SERVER_PID=$!
-sleep 4
-
-if ! curl -sf http://127.0.0.1:5050/health | grep -q "ok"; then
-  err "Server failed to start."
-  echo "     Log: /tmp/claude-usage-install-test.log"
-  kill $SERVER_PID 2>/dev/null || true
-  exit 1
-fi
-
-USAGE=$(curl -s http://127.0.0.1:5050/usage)
-CURRENT=$(echo "$USAGE" | grep -o '"current_percent":[^,}]*' | grep -o '[0-9.]*')
-WEEKLY=$(echo  "$USAGE" | grep -o '"weekly_percent":[^,}]*'  | grep -o '[0-9.]*')
-ok "Server responding"
-ok "Current usage: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
-
-kill $SERVER_PID 2>/dev/null || true
-sleep 1
 
 # ── Windows Desktop shortcut (WSL only) ───────────────────────────────────
 IS_WSL=false
@@ -182,27 +173,55 @@ if $IS_WSL; then
   echo ""
   WIN_USER=$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r\n')
   DESKTOP="/mnt/c/Users/$WIN_USER/Desktop"
-  PS1_SRC="$SCRIPT_DIR/Start Bridge.ps1"
+  PS1_SRC="$INSTALL_DIR/Start Bridge.ps1"
   PS1_DST="$DESKTOP/Start Claude Usage Bridge.ps1"
   if [ -d "$DESKTOP" ] && [ -f "$PS1_SRC" ]; then
     cp "$PS1_SRC" "$PS1_DST"
     ok "Startup script copied to Windows Desktop"
   else
-    warn "Could not find Desktop — copy manually:"
-    echo "       $PS1_SRC"
+    warn "Could not copy to Desktop — do it manually: $PS1_SRC"
   fi
 fi
 
-# ── QR code in terminal ───────────────────────────────────────────────────
+# ── Start server ───────────────────────────────────────────────────────────
 echo ""
 sep
-echo -e "${BOLD}Server QR code${NC} — scan this with your Rabbit R1:"
+echo -e "${BOLD}Starting server...${NC}"
 echo ""
 
-# Use Python (available everywhere) to print a basic QR via qrcode lib,
-# falling back to just printing the URL if qrcode isn't installed.
+fuser -k 5050/tcp 2>/dev/null || true
+sleep 1
+
+node "$INSTALL_DIR/start.js" > /tmp/claude-usage.log 2>&1 &
+SERVER_PID=$!
+sleep 4
+
+if ! curl -sf http://127.0.0.1:5050/health | grep -q "ok"; then
+  err "Server failed to start. Check: /tmp/claude-usage.log"
+  exit 1
+fi
+
+USAGE=$(curl -s http://127.0.0.1:5050/usage)
+CURRENT=$(echo "$USAGE" | grep -o '"current_percent":[^,}]*' | grep -o '[0-9.]*')
+WEEKLY=$(echo  "$USAGE" | grep -o '"weekly_percent":[^,}]*'  | grep -o '[0-9.]*')
+ok "Server running on port 5050"
+ok "Current usage: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
+
+# ── Open dashboard ─────────────────────────────────────────────────────────
+if $IS_WSL; then
+  cmd.exe /c start http://localhost:5050 2>/dev/null || true
+elif command -v xdg-open &>/dev/null; then
+  xdg-open http://localhost:5050 2>/dev/null || true
+elif command -v open &>/dev/null; then
+  open http://localhost:5050 2>/dev/null || true
+fi
+
+# ── Print Gist QR in terminal ──────────────────────────────────────────────
+echo ""
+sep
+echo -e "${BOLD}Your Gist QR code${NC} — scan inside the Rabbit app (⚙ → Scan QR):"
+echo ""
 python3 -c "
-import sys
 try:
     import qrcode
     qr = qrcode.QRCode(border=1)
@@ -210,36 +229,23 @@ try:
     qr.make(fit=True)
     qr.print_ascii(invert=True)
 except ImportError:
-    pass
+    print('  (install python3-qrcode to see QR here)')
 " 2>/dev/null || true
 
-# Also save PNG if node qrcode is available
-node -e "
-try {
-  const QRCode = require('qrcode');
-  QRCode.toFile('/tmp/claude-usage-qr.png','$GIST_URL',{width:400,margin:2},e=>{
-    if(!e) process.stdout.write('png_saved');
-  });
-} catch(e) {}
-" 2>/dev/null | grep -q "png_saved" && ok "QR saved to /tmp/claude-usage-qr.png" || true
-
-# ── Done ──────────────────────────────────────────────────────────────────
+# ── Done ───────────────────────────────────────────────────────────────────
 echo ""
 sep
 echo ""
-echo -e "${GREEN}${BOLD}  Install complete!${NC}"
+echo -e "${GREEN}${BOLD}  All done!${NC}"
 echo ""
-echo -e "  ${BOLD}Start the monitor:${NC}"
+echo -e "  ${BOLD}Dashboard:${NC}   ${CYAN}http://localhost:5050${NC}"
+echo -e "  ${BOLD}Gist URL:${NC}    ${CYAN}$GIST_URL${NC}"
+echo -e "  ${BOLD}Gist QR:${NC}     ${CYAN}http://localhost:5050/qr${NC}"
+echo ""
 if $IS_WSL; then
+  echo -e "  To start again later:"
   echo -e "    Double-click ${CYAN}Start Claude Usage Bridge${NC} on your Windows Desktop"
 else
-  echo -e "    ${CYAN}node $SCRIPT_DIR/start.js${NC}"
+  echo -e "  To start again later:  ${CYAN}node $INSTALL_DIR/start.js${NC}"
 fi
-echo ""
-echo -e "  ${BOLD}Dashboard:${NC}  ${CYAN}http://localhost:5050${NC}"
-echo -e "  ${BOLD}Gist URL:${NC}   ${CYAN}$GIST_URL${NC}"
-echo -e "  ${BOLD}Server QR:${NC}  Open ${CYAN}http://localhost:5050/qr${NC} in your browser"
-echo ""
-echo -e "  Paste the Gist URL into the Rabbit app settings,"
-echo -e "  or use the QR scanner in the app to fill it in automatically."
 echo ""
