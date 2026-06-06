@@ -558,7 +558,7 @@ function checkAuth(req, res) {
 }
 
 function createServer() {
-  return http.createServer((req, res) => {
+  return http.createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       cors(res);
       res.writeHead(204);
