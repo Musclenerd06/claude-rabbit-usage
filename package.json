@@ -1,0 +1,14 @@
+{
+  "name": "claude-rabbit-usage",
+  "version": "1.0.0",
+  "description": "Claude Code usage monitor for Rabbit R1",
+  "main": "server.js",
+  "scripts": {
+    "setup": "bash install.sh",
+    "start": "node start.js",
+    "server": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

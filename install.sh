@@ -1,166 +1,245 @@
 #!/usr/bin/env bash
 # Claude Usage Monitor — Installer
-# Run this in WSL: bash install.sh
+# Run from inside the cloned repo: bash install.sh
 
 set -e
 
-INSTALL_DIR="$HOME/claude-rabbit-usage"
-DESKTOP="/mnt/c/Users/$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r')/Desktop"
-
-# ── Colors ────────────────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+
+ok()   { echo -e "  ${GREEN}✓${NC} $*"; }
+warn() { echo -e "  ${YELLOW}!${NC} $*"; }
+err()  { echo -e "  ${RED}✗${NC} $*"; }
+sep()  { echo -e "${CYAN}────────────────────────────────────────${NC}"; }
 
 echo ""
 echo -e "${CYAN}${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${CYAN}${BOLD}║   Claude Usage Monitor — Installer   ║${NC}"
-echo -e "${CYAN}${BOLD}║         by Arnold Haxinator           ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 
-# ── Check prerequisites ───────────────────────────────────────────────────
-echo -e "${YELLOW}Checking prerequisites...${NC}"
+# ── Prerequisites ─────────────────────────────────────────────────────────
+sep
+echo -e "${BOLD}Checking prerequisites...${NC}"
+echo ""
 
 # Node.js
 if ! command -v node &>/dev/null; then
-  echo -e "${YELLOW}Node.js not found. Installing via nvm...${NC}"
+  warn "Node.js not found. Installing via nvm..."
   curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
   export NVM_DIR="$HOME/.nvm"
+  # shellcheck disable=SC1091
   source "$NVM_DIR/nvm.sh"
-  nvm install --lts
-  nvm use --lts
+  nvm install --lts --silent
+  nvm use --lts --silent
 fi
-echo -e "  ${GREEN}✓${NC} Node.js $(node --version)"
+ok "Node.js $(node --version)"
 
-# Claude Code logs
-if [ ! -d "$HOME/.claude/projects" ]; then
-  echo -e "  ${RED}✗ ~/.claude/projects not found${NC}"
-  echo -e "  Make sure Claude Code is installed and you've had at least one conversation."
+# curl
+if ! command -v curl &>/dev/null; then
+  err "curl is required but not found. Install it and re-run."
   exit 1
 fi
-echo -e "  ${GREEN}✓${NC} Claude Code logs found"
+ok "curl found"
 
-# ── Clone or update repo ──────────────────────────────────────────────────
-echo ""
-echo -e "${YELLOW}Setting up files...${NC}"
-
-if [ -d "$INSTALL_DIR/.git" ]; then
-  echo -e "  Updating existing install..."
-  git -C "$INSTALL_DIR" pull --quiet
-else
-  git clone https://github.com/Musclenerd06/claude-rabbit-usage.git "$INSTALL_DIR" --quiet
+# Claude Code logs
+CLAUDE_LOG_DIR=""
+for d in "$HOME/.claude/projects" "$HOME/.config/claude/projects"; do
+  if [ -d "$d" ]; then CLAUDE_LOG_DIR="$d"; break; fi
+done
+if [ -z "$CLAUDE_LOG_DIR" ]; then
+  err "Claude Code logs not found (~/.claude/projects)"
+  echo "     Make sure Claude Code is installed and you've had at least one session."
+  exit 1
 fi
-echo -e "  ${GREEN}✓${NC} Files ready at $INSTALL_DIR"
+LOG_COUNT=$(find "$CLAUDE_LOG_DIR" -name "*.jsonl" 2>/dev/null | wc -l)
+ok "Claude Code logs found ($LOG_COUNT .jsonl files)"
 
-# ── Configure .env ────────────────────────────────────────────────────────
+# ── .env setup ────────────────────────────────────────────────────────────
 echo ""
-echo -e "${CYAN}${BOLD}Setup — GitHub Gist (free, takes 2 minutes)${NC}"
+sep
+echo -e "${BOLD}GitHub Gist setup${NC}"
 echo ""
 
-if [ -f "$INSTALL_DIR/.env" ]; then
-  echo -e "  ${GREEN}✓${NC} .env already exists — skipping configuration"
-  echo -e "  (Delete $INSTALL_DIR/.env and re-run to reconfigure)"
-else
-  echo -e "  You need a free GitHub account and two things:"
-  echo ""
-  echo -e "  ${BOLD}Step 1 — Create a Gist:${NC}"
-  echo -e "  → Open: ${CYAN}https://gist.github.com${NC}"
-  echo -e "  → Create a PUBLIC gist, filename: ${BOLD}usage.json${NC}, content: ${BOLD}{}${NC}"
-  echo -e "  → Copy the ID from the URL (the long string at the end)"
-  echo ""
-  read -rp "  Paste your Gist ID: " GIST_ID
-  while [[ -z "$GIST_ID" ]]; do
-    read -rp "  Gist ID cannot be empty. Try again: " GIST_ID
-  done
+ENV_FILE="$SCRIPT_DIR/.env"
+GITHUB_TOKEN=""
+GIST_ID=""
+GITHUB_USER=""
 
-  echo ""
-  echo -e "  ${BOLD}Step 2 — Create a GitHub token:${NC}"
-  echo -e "  → Open: ${CYAN}https://github.com/settings/tokens/new${NC}"
-  echo -e "  → Name it anything, select scope: ${BOLD}gist${NC} only, click Generate"
-  echo -e "  → Copy the token (you only see it once)"
-  echo ""
-  read -rp "  Paste your GitHub token: " GITHUB_TOKEN
-  while [[ -z "$GITHUB_TOKEN" ]]; do
-    read -rp "  Token cannot be empty. Try again: " GITHUB_TOKEN
-  done
-
-  cat > "$INSTALL_DIR/.env" <<EOF
-GITHUB_TOKEN=${GITHUB_TOKEN}
-GIST_ID=${GIST_ID}
-EOF
-  chmod 600 "$INSTALL_DIR/.env"
-  echo -e "  ${GREEN}✓${NC} .env saved"
+# Load existing .env values if present
+if [ -f "$ENV_FILE" ]; then
+  # shellcheck disable=SC1090
+  set -a; source "$ENV_FILE"; set +a
+  GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+  GIST_ID="${GIST_ID:-}"
+  GITHUB_USER="${GITHUB_USER:-}"
 fi
 
-# ── Test the server ───────────────────────────────────────────────────────
-echo ""
-echo -e "${YELLOW}Testing server...${NC}"
+# Ask for token if missing or invalid
+if [ -z "$GITHUB_TOKEN" ]; then
+  echo -e "  You need a GitHub token with ${BOLD}gist${NC} scope."
+  echo -e "  Create one at: ${CYAN}https://github.com/settings/tokens/new${NC}"
+  echo -e "  Select scope: ${BOLD}gist${NC} only → click Generate token"
+  echo ""
+  while true; do
+    read -rsp "  Paste your GitHub token: " GITHUB_TOKEN; echo ""
+    [ -n "$GITHUB_TOKEN" ] && break
+    warn "Token cannot be empty."
+  done
+fi
 
-# Kill any old instance
+# Validate token
+echo ""
+echo -e "  Validating token..."
+USER_RESP=$(curl -sf -H "Authorization: token $GITHUB_TOKEN" \
+  -H "User-Agent: claude-usage-installer" \
+  https://api.github.com/user 2>/dev/null || echo '{}')
+GITHUB_USER=$(echo "$USER_RESP" | grep '"login"' | head -1 | cut -d'"' -f4)
+if [ -z "$GITHUB_USER" ]; then
+  err "Token is invalid or has no access. Check it and re-run."
+  exit 1
+fi
+ok "Token valid — GitHub user: ${BOLD}$GITHUB_USER${NC}"
+
+# Create Gist if missing
+if [ -z "$GIST_ID" ]; then
+  echo -e "  Creating a Gist to relay your usage data..."
+  GIST_RESP=$(curl -sf -X POST \
+    -H "Authorization: token $GITHUB_TOKEN" \
+    -H "Content-Type: application/json" \
+    -H "User-Agent: claude-usage-installer" \
+    -d '{"description":"Claude Code usage relay","public":true,"files":{"usage.json":{"content":"{}"}}}' \
+    https://api.github.com/gists 2>/dev/null || echo '{}')
+  GIST_ID=$(echo "$GIST_RESP" | grep '"id"' | head -1 | cut -d'"' -f4)
+  if [ -z "$GIST_ID" ]; then
+    err "Failed to create Gist. Does your token have the 'gist' scope?"
+    exit 1
+  fi
+  ok "Gist created: ${BOLD}$GIST_ID${NC}"
+else
+  ok "Gist already configured: ${BOLD}$GIST_ID${NC}"
+fi
+
+GIST_URL="https://gist.githubusercontent.com/$GITHUB_USER/$GIST_ID/raw/usage.json"
+
+# Optional reset anchor
+echo ""
+RESET_ANCHOR="${RESET_ANCHOR_UTC:-}"
+if [ -z "$RESET_ANCHOR" ]; then
+  echo -e "  ${BOLD}Optional:${NC} your 5-hour reset time in UTC (e.g. 17:30)"
+  echo -e "  Find it by watching when Claude Code's usage resets. Press Enter to skip."
+  read -rp "  Reset anchor UTC (HH:MM or Enter to skip): " RESET_ANCHOR
+fi
+
+# Write .env
+{
+  echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+  echo "GIST_ID=$GIST_ID"
+  echo "GITHUB_USER=$GITHUB_USER"
+  [ -n "$RESET_ANCHOR" ] && echo "RESET_ANCHOR_UTC=$RESET_ANCHOR"
+} > "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+ok ".env saved"
+
+# ── Test server ───────────────────────────────────────────────────────────
+echo ""
+sep
+echo -e "${BOLD}Testing server...${NC}"
+echo ""
+
 fuser -k 5050/tcp 2>/dev/null || true
 sleep 1
 
-# Start server temporarily to test
-node "$INSTALL_DIR/server.js" > /tmp/claude-usage-test.log 2>&1 &
+node "$SCRIPT_DIR/server.js" > /tmp/claude-usage-install-test.log 2>&1 &
 SERVER_PID=$!
 sleep 4
 
-if curl -s http://127.0.0.1:5050/health | grep -q "ok"; then
-  echo -e "  ${GREEN}✓${NC} Server started and responding"
-  USAGE=$(curl -s http://127.0.0.1:5050/usage)
-  CURRENT=$(echo "$USAGE" | grep current_percent | grep -o '[0-9]*' | head -1)
-  WEEKLY=$(echo "$USAGE" | grep weekly_percent | grep -o '[0-9]*' | head -1)
-  echo -e "  ${GREEN}✓${NC} Reading logs — Current: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
-else
-  echo -e "  ${RED}✗ Server failed to start. Check: /tmp/claude-usage-test.log${NC}"
+if ! curl -sf http://127.0.0.1:5050/health | grep -q "ok"; then
+  err "Server failed to start."
+  echo "     Log: /tmp/claude-usage-install-test.log"
   kill $SERVER_PID 2>/dev/null || true
   exit 1
 fi
 
-# Stop the test instance — the PS1 script will manage it from Windows
+USAGE=$(curl -s http://127.0.0.1:5050/usage)
+CURRENT=$(echo "$USAGE" | grep -o '"current_percent":[^,}]*' | grep -o '[0-9.]*')
+WEEKLY=$(echo  "$USAGE" | grep -o '"weekly_percent":[^,}]*'  | grep -o '[0-9.]*')
+ok "Server responding"
+ok "Current usage: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
+
 kill $SERVER_PID 2>/dev/null || true
 sleep 1
 
-# ── Copy Windows startup script to Desktop ────────────────────────────────
+# ── Windows Desktop shortcut (WSL only) ───────────────────────────────────
+IS_WSL=false
+grep -qi "microsoft\|wsl" /proc/version 2>/dev/null && IS_WSL=true
+
+if $IS_WSL; then
+  echo ""
+  sep
+  echo -e "${BOLD}Windows setup...${NC}"
+  echo ""
+  WIN_USER=$(cmd.exe /c echo %USERNAME% 2>/dev/null | tr -d '\r\n')
+  DESKTOP="/mnt/c/Users/$WIN_USER/Desktop"
+  PS1_SRC="$SCRIPT_DIR/Start Bridge.ps1"
+  PS1_DST="$DESKTOP/Start Claude Usage Bridge.ps1"
+  if [ -d "$DESKTOP" ] && [ -f "$PS1_SRC" ]; then
+    cp "$PS1_SRC" "$PS1_DST"
+    ok "Startup script copied to Windows Desktop"
+  else
+    warn "Could not find Desktop — copy manually:"
+    echo "       $PS1_SRC"
+  fi
+fi
+
+# ── QR code in terminal ───────────────────────────────────────────────────
 echo ""
-echo -e "${YELLOW}Creating Windows shortcut...${NC}"
+sep
+echo -e "${BOLD}Server QR code${NC} — scan this with your Rabbit R1:"
+echo ""
 
-# Update the PS1 with the correct install path
-ESCAPED_DIR=$(echo "$INSTALL_DIR" | sed 's/\//\\\//g')
-sed "s|/home/workbench/claude-rabbit-usage|$INSTALL_DIR|g" \
-  "$INSTALL_DIR/Start Bridge.ps1" > "/tmp/Start Claude Usage Bridge.ps1"
+# Use Python (available everywhere) to print a basic QR via qrcode lib,
+# falling back to just printing the URL if qrcode isn't installed.
+python3 -c "
+import sys
+try:
+    import qrcode
+    qr = qrcode.QRCode(border=1)
+    qr.add_data('$GIST_URL')
+    qr.make(fit=True)
+    qr.print_ascii(invert=True)
+except ImportError:
+    pass
+" 2>/dev/null || true
 
-if [ -d "$DESKTOP" ]; then
-  cp "/tmp/Start Claude Usage Bridge.ps1" "$DESKTOP/Start Claude Usage Bridge.ps1"
-  echo -e "  ${GREEN}✓${NC} Shortcut placed on your Windows Desktop"
-else
-  echo -e "  ${YELLOW}!${NC} Could not find Windows Desktop — copy this manually:"
-  echo -e "     /tmp/Start Claude Usage Bridge.ps1"
-fi
-
-# ── Print Gist URL ────────────────────────────────────────────────────────
-source "$INSTALL_DIR/.env"
-GIST_URL="https://gist.githubusercontent.com/${GIST_ID}/raw/usage.json"
-
-# Try to get GitHub username
-GH_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/gists/$GIST_ID 2>/dev/null | grep '"login"' | head -1 | cut -d'"' -f4)
-if [ -n "$GH_USER" ]; then
-  GIST_URL="https://gist.githubusercontent.com/$GH_USER/$GIST_ID/raw/usage.json"
-fi
+# Also save PNG if node qrcode is available
+node -e "
+try {
+  const QRCode = require('qrcode');
+  QRCode.toFile('/tmp/claude-usage-qr.png','$GIST_URL',{width:400,margin:2},e=>{
+    if(!e) process.stdout.write('png_saved');
+  });
+} catch(e) {}
+" 2>/dev/null | grep -q "png_saved" && ok "QR saved to /tmp/claude-usage-qr.png" || true
 
 # ── Done ──────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${GREEN}${BOLD}╔══════════════════════════════════════╗${NC}"
-echo -e "${GREEN}${BOLD}║            Install complete!          ║${NC}"
-echo -e "${GREEN}${BOLD}╚══════════════════════════════════════╝${NC}"
+sep
 echo ""
-echo -e "  ${BOLD}To start the monitor:${NC}"
-echo -e "  → Double-click ${CYAN}Start Claude Usage Bridge${NC} on your Windows Desktop"
+echo -e "${GREEN}${BOLD}  Install complete!${NC}"
 echo ""
-echo -e "  ${BOLD}Your Gist URL (for the Rabbit app settings):${NC}"
-echo -e "  ${CYAN}${GIST_URL}${NC}"
+echo -e "  ${BOLD}Start the monitor:${NC}"
+if $IS_WSL; then
+  echo -e "    Double-click ${CYAN}Start Claude Usage Bridge${NC} on your Windows Desktop"
+else
+  echo -e "    ${CYAN}node $SCRIPT_DIR/start.js${NC}"
+fi
 echo ""
-echo -e "  ${BOLD}Rabbit app:${NC}"
-echo -e "  → Scan the QR code to add the app to your R1"
-echo -e "  → Tap ⚙ in the app and paste your Gist URL above"
+echo -e "  ${BOLD}Dashboard:${NC}  ${CYAN}http://localhost:5050${NC}"
+echo -e "  ${BOLD}Gist URL:${NC}   ${CYAN}$GIST_URL${NC}"
+echo -e "  ${BOLD}Server QR:${NC}  Open ${CYAN}http://localhost:5050/qr${NC} in your browser"
+echo ""
+echo -e "  Paste the Gist URL into the Rabbit app settings,"
+echo -e "  or use the QR scanner in the app to fill it in automatically."
 echo ""
