@@ -413,18 +413,17 @@ async function fetchData() {
 /* ── Storage ──────────────────────────────────────────────────── */
 
 async function saveEndpoint(url) {
+  // Always write to localStorage — most reliable across restarts
+  try { localStorage.setItem('claude_endpoint', JSON.stringify({ url })); } catch (_) {}
+  // Also write to creationStorage if available (Rabbit native API)
   if (window.creationStorage) {
-    try {
-      const encoded = btoa(JSON.stringify({ url }));
-      await window.creationStorage.plain.setItem('endpoint', encoded);
-    } catch (e) { console.error('Save error:', e); }
-  } else {
-    localStorage.setItem('endpoint', JSON.stringify({ url }));
+    try { await window.creationStorage.plain.setItem('endpoint', btoa(JSON.stringify({ url }))); } catch (_) {}
   }
 }
 
 async function loadEndpoint() {
   let found = false;
+  // Try creationStorage first
   if (window.creationStorage) {
     try {
       const stored = await window.creationStorage.plain.getItem('endpoint');
@@ -432,13 +431,17 @@ async function loadEndpoint() {
         const parsed = JSON.parse(atob(stored));
         if (parsed.url) { apiUrl = parsed.url; found = true; }
       }
-    } catch (e) { console.error('Load error:', e); }
-  } else {
-    const stored = localStorage.getItem('endpoint');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.url) { apiUrl = parsed.url; found = true; }
-    }
+    } catch (_) {}
+  }
+  // Always try localStorage as well — wins if creationStorage had nothing
+  if (!found) {
+    try {
+      const stored = localStorage.getItem('claude_endpoint');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.url) { apiUrl = parsed.url; found = true; }
+      }
+    } catch (_) {}
   }
   if (!found) firstLaunch = true;
 }
