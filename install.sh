@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Claude Usage Monitor — One-line installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/Musclenerd06/claude-rabbit-usage/main/install.sh | bash
+# Claude Usage Monitor — Installer (Linux + macOS + WSL)
+# curl -fsSL https://raw.githubusercontent.com/Musclenerd06/claude-rabbit-usage/main/install.sh | bash
 
 set -e
 
@@ -21,6 +21,33 @@ echo -e "${CYAN}${BOLD}║   Claude Usage Monitor — Installer   ║${NC}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 
+# ── Detect platform ────────────────────────────────────────────────────────
+PLATFORM="linux"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  PLATFORM="mac"
+elif grep -qi "microsoft\|wsl" /proc/version 2>/dev/null; then
+  PLATFORM="wsl"
+fi
+ok "Platform: $PLATFORM"
+
+kill_port() {
+  if [ "$PLATFORM" = "mac" ]; then
+    lsof -ti tcp:5050 2>/dev/null | xargs kill -9 2>/dev/null || true
+  else
+    fuser -k 5050/tcp 2>/dev/null || true
+  fi
+}
+
+open_browser() {
+  if [ "$PLATFORM" = "wsl" ]; then
+    cmd.exe /c start http://localhost:5050 2>/dev/null || true
+  elif [ "$PLATFORM" = "mac" ]; then
+    open http://localhost:5050 2>/dev/null || true
+  else
+    xdg-open http://localhost:5050 2>/dev/null || true
+  fi
+}
+
 # ── Prerequisites ──────────────────────────────────────────────────────────
 sep
 echo -e "${BOLD}Checking prerequisites...${NC}"
@@ -38,28 +65,20 @@ if ! command -v node &>/dev/null; then
 fi
 ok "Node.js $(node --version)"
 
-# git
 if ! command -v git &>/dev/null; then
-  err "git is required but not found. Install git and re-run."
+  err "git is required. Install it and re-run."
   exit 1
 fi
-ok "git found"
-
-# curl
-if ! command -v curl &>/dev/null; then
-  err "curl is required but not found."
-  exit 1
-fi
-ok "curl found"
+ok "git $(git --version | cut -d' ' -f3)"
 
 # Claude Code logs
 CLAUDE_LOG_DIR=""
-for d in "$HOME/.claude/projects" "$HOME/.config/claude/projects"; do
+for d in "$HOME/.claude/projects" "$HOME/.config/claude/projects" \
+         "$HOME/Library/Application Support/Claude/projects"; do
   if [ -d "$d" ]; then CLAUDE_LOG_DIR="$d"; break; fi
 done
 if [ -z "$CLAUDE_LOG_DIR" ]; then
-  err "Claude Code logs not found (~/.claude/projects)"
-  echo "     Make sure Claude Code is installed and you've had at least one session."
+  err "Claude Code logs not found. Make sure Claude Code is installed and you've had at least one session."
   exit 1
 fi
 LOG_COUNT=$(find "$CLAUDE_LOG_DIR" -name "*.jsonl" 2>/dev/null | wc -l)
@@ -73,7 +92,7 @@ echo ""
 
 if [ -d "$INSTALL_DIR/.git" ]; then
   git -C "$INSTALL_DIR" pull --ff-only origin main 2>&1 | tail -1
-  ok "Updated to latest — $INSTALL_DIR"
+  ok "Updated — $INSTALL_DIR"
 else
   git clone "$REPO_URL" "$INSTALL_DIR"
   ok "Cloned to $INSTALL_DIR"
@@ -83,27 +102,22 @@ cd "$INSTALL_DIR"
 npm install --silent
 ok "Dependencies installed"
 
-# ── .env setup ────────────────────────────────────────────────────────────
+# ── GitHub / Gist setup ────────────────────────────────────────────────────
 echo ""
 sep
 echo -e "${BOLD}GitHub setup${NC}"
 echo ""
 
 ENV_FILE="$INSTALL_DIR/.env"
-GITHUB_TOKEN=""
-GIST_ID=""
-GITHUB_USER=""
+GITHUB_TOKEN=""; GIST_ID=""; GITHUB_USER=""
 
 if [ -f "$ENV_FILE" ]; then
-  # shellcheck disable=SC1090
   set -a; source "$ENV_FILE"; set +a
-  GITHUB_TOKEN="${GITHUB_TOKEN:-}"
-  GIST_ID="${GIST_ID:-}"
-  GITHUB_USER="${GITHUB_USER:-}"
+  GITHUB_TOKEN="${GITHUB_TOKEN:-}"; GIST_ID="${GIST_ID:-}"; GITHUB_USER="${GITHUB_USER:-}"
 fi
 
 if [ -n "$GITHUB_TOKEN" ] && [ -n "$GIST_ID" ]; then
-  ok "Already configured — GitHub user: ${BOLD}$GITHUB_USER${NC}, Gist: ${BOLD}$GIST_ID${NC}"
+  ok "Already configured — user: ${BOLD}$GITHUB_USER${NC}  Gist: ${BOLD}$GIST_ID${NC}"
 else
   echo -e "  You need a GitHub token with ${BOLD}gist${NC} scope."
   echo -e "  Create one at: ${CYAN}https://github.com/settings/tokens/new${NC}"
@@ -122,7 +136,7 @@ else
     https://api.github.com/user 2>/dev/null || echo '{}')
   GITHUB_USER=$(echo "$USER_RESP" | grep '"login"' | head -1 | cut -d'"' -f4)
   if [ -z "$GITHUB_USER" ]; then
-    err "Token is invalid or missing gist scope."
+    err "Token invalid or missing gist scope."
     exit 1
   fi
   ok "Token valid — GitHub user: ${BOLD}$GITHUB_USER${NC}"
@@ -136,22 +150,19 @@ else
     https://api.github.com/gists 2>/dev/null || echo '{}')
   GIST_ID=$(echo "$GIST_RESP" | grep '"id"' | head -1 | cut -d'"' -f4)
   if [ -z "$GIST_ID" ]; then
-    err "Failed to create Gist. Does your token have the 'gist' scope?"
+    err "Failed to create Gist. Does your token have 'gist' scope?"
     exit 1
   fi
   ok "Gist created: ${BOLD}$GIST_ID${NC}"
 
-  # Optional reset anchor
   echo ""
   RESET_ANCHOR="${RESET_ANCHOR_UTC:-}"
   if [ -z "$RESET_ANCHOR" ]; then
-    echo -e "  ${BOLD}Optional:${NC} your 5-hour reset time in UTC (e.g. 17:30)"
-    echo -e "  Press Enter to skip."
+    echo -e "  ${BOLD}Optional:${NC} your 5-hour reset time in UTC (e.g. 17:30). Press Enter to skip."
     read -rp "  Reset anchor UTC (HH:MM or Enter): " RESET_ANCHOR
   fi
 
-  {
-    echo "GITHUB_TOKEN=$GITHUB_TOKEN"
+  { echo "GITHUB_TOKEN=$GITHUB_TOKEN"
     echo "GIST_ID=$GIST_ID"
     echo "GITHUB_USER=$GITHUB_USER"
     [ -n "$RESET_ANCHOR" ] && echo "RESET_ANCHOR_UTC=$RESET_ANCHOR"
@@ -162,11 +173,8 @@ fi
 
 GIST_URL="https://gist.githubusercontent.com/$GITHUB_USER/$GIST_ID/raw/usage.json"
 
-# ── Windows Desktop shortcut (WSL only) ───────────────────────────────────
-IS_WSL=false
-grep -qi "microsoft\|wsl" /proc/version 2>/dev/null && IS_WSL=true
-
-if $IS_WSL; then
+# ── WSL: copy startup script to Windows Desktop ────────────────────────────
+if [ "$PLATFORM" = "wsl" ]; then
   echo ""
   sep
   echo -e "${BOLD}Windows setup...${NC}"
@@ -189,11 +197,10 @@ sep
 echo -e "${BOLD}Starting server...${NC}"
 echo ""
 
-fuser -k 5050/tcp 2>/dev/null || true
+kill_port
 sleep 1
 
 node "$INSTALL_DIR/start.js" > /tmp/claude-usage.log 2>&1 &
-SERVER_PID=$!
 sleep 4
 
 if ! curl -sf http://127.0.0.1:5050/health | grep -q "ok"; then
@@ -205,21 +212,14 @@ USAGE=$(curl -s http://127.0.0.1:5050/usage)
 CURRENT=$(echo "$USAGE" | grep -o '"current_percent":[^,}]*' | grep -o '[0-9.]*')
 WEEKLY=$(echo  "$USAGE" | grep -o '"weekly_percent":[^,}]*'  | grep -o '[0-9.]*')
 ok "Server running on port 5050"
-ok "Current usage: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
+ok "Current: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
 
-# ── Open dashboard ─────────────────────────────────────────────────────────
-if $IS_WSL; then
-  cmd.exe /c start http://localhost:5050 2>/dev/null || true
-elif command -v xdg-open &>/dev/null; then
-  xdg-open http://localhost:5050 2>/dev/null || true
-elif command -v open &>/dev/null; then
-  open http://localhost:5050 2>/dev/null || true
-fi
+open_browser
 
-# ── Print Gist QR in terminal ──────────────────────────────────────────────
+# ── Gist QR in terminal ────────────────────────────────────────────────────
 echo ""
 sep
-echo -e "${BOLD}Your Gist QR code${NC} — scan inside the Rabbit app (⚙ → Scan QR):"
+echo -e "${BOLD}Gist QR code${NC} — scan inside the Rabbit app (⚙ → Scan QR):"
 echo ""
 python3 -c "
 try:
@@ -242,10 +242,9 @@ echo -e "  ${BOLD}Dashboard:${NC}   ${CYAN}http://localhost:5050${NC}"
 echo -e "  ${BOLD}Gist URL:${NC}    ${CYAN}$GIST_URL${NC}"
 echo -e "  ${BOLD}Gist QR:${NC}     ${CYAN}http://localhost:5050/qr${NC}"
 echo ""
-if $IS_WSL; then
-  echo -e "  To start again later:"
-  echo -e "    Double-click ${CYAN}Start Claude Usage Bridge${NC} on your Windows Desktop"
+if [ "$PLATFORM" = "wsl" ]; then
+  echo -e "  To start again: double-click ${CYAN}Start Claude Usage Bridge${NC} on your Desktop"
 else
-  echo -e "  To start again later:  ${CYAN}node $INSTALL_DIR/start.js${NC}"
+  echo -e "  To start again: ${CYAN}node $INSTALL_DIR/start.js${NC}"
 fi
 echo ""
