@@ -648,15 +648,42 @@ ${gistUrl
     } else if (url === '/api/config' && req.method === 'POST') {
       let body = '';
       req.on('data', c => { body += c; });
-      req.on('end', () => {
+      req.on('end', async () => {
         try {
-          const { gist_id, github_token } = JSON.parse(body);
-          if (!gist_id || !github_token) {
-            return sendJSON(res, 400, { error: 'gist_id and github_token are required' });
+          const { github_token, gist_id } = JSON.parse(body);
+          if (!github_token) return sendJSON(res, 400, { error: 'github_token is required' });
+          const token = github_token.trim();
+
+          // Validate token + resolve username
+          const userResp = await new Promise((resolve, reject) => {
+            const r = https.request({
+              hostname: 'api.github.com', path: '/user', method: 'GET',
+              headers: { 'Authorization': `token ${token}`, 'User-Agent': 'claude-usage-installer' }
+            }, rr => { let d = ''; rr.on('data', c => d += c); rr.on('end', () => resolve(d)); });
+            r.on('error', reject); r.end();
+          });
+          const login = JSON.parse(userResp).login;
+          if (!login) return sendJSON(res, 400, { error: 'Invalid token or missing gist scope' });
+
+          // Use provided gist_id or auto-create one
+          let resolvedGistId = (gist_id || '').trim();
+          if (!resolvedGistId) {
+            const gistResp = await new Promise((resolve, reject) => {
+              const gBody = JSON.stringify({ description: 'Claude Code usage relay', public: true, files: { 'usage.json': { content: '{}' } } });
+              const r = https.request({
+                hostname: 'api.github.com', path: '/gists', method: 'POST',
+                headers: { 'Authorization': `token ${token}`, 'Content-Type': 'application/json',
+                  'User-Agent': 'claude-usage-installer', 'Content-Length': Buffer.byteLength(gBody) }
+              }, rr => { let d = ''; rr.on('data', c => d += c); rr.on('end', () => resolve(d)); });
+              r.on('error', reject); r.write(gBody); r.end();
+            });
+            resolvedGistId = JSON.parse(gistResp).id;
+            if (!resolvedGistId) return sendJSON(res, 400, { error: 'Failed to create Gist — does token have gist scope?' });
           }
-          // Write .env — preserve existing keys, only update provided ones
+
+          // Write .env — preserve existing keys
           const envPath = path.join(__dirname, '.env');
-          const updates = { GITHUB_TOKEN: github_token.trim(), GIST_ID: gist_id.trim() };
+          const updates = { GITHUB_TOKEN: token, GIST_ID: resolvedGistId, GITHUB_USER: login };
           let existing = [];
           if (fs.existsSync(envPath)) {
             existing = fs.readFileSync(envPath, 'utf8').split('\n')
@@ -665,12 +692,12 @@ ${gistUrl
           const lines = [...existing, ...Object.entries(updates).map(([k, v]) => `${k}=${v}`)];
           fs.writeFileSync(envPath, lines.join('\n') + '\n');
           fs.chmodSync(envPath, 0o600);
-          // Hot-reload credentials
-          GITHUB_TOKEN = github_token.trim();
-          GIST_ID      = gist_id.trim();
-          // Immediate collect + push
+          // Hot-reload
+          GITHUB_TOKEN = token;
+          GIST_ID      = resolvedGistId;
+          GITHUB_USER  = login;
           collect();
-          sendJSON(res, 200, { ok: true });
+          sendJSON(res, 200, { ok: true, gist_id: resolvedGistId, github_user: login });
         } catch (e) {
           sendJSON(res, 400, { error: e.message });
         }

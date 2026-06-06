@@ -151,22 +151,9 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="step">
         <div class="step-num" id="s3num">3</div>
         <div class="step-body">
-          <div class="step-title">Create a GitHub Gist</div>
-          <div class="step-desc">
-            The Gist is a free public file that relays your usage data to the Rabbit.<br><br>
-            1. Open <a href="https://gist.github.com" target="_blank">gist.github.com</a><br>
-            2. Create a <strong>public</strong> gist — filename: <code>usage.json</code>, content: <code>{}</code><br>
-            3. Copy the ID from the URL (the long string at the end)
-          </div>
-        </div>
-      </div>
-
-      <div class="step">
-        <div class="step-num" id="s4num">4</div>
-        <div class="step-body">
           <div class="step-title">Create a GitHub token</div>
           <div class="step-desc">
-            The token lets the server push updates to your Gist.<br><br>
+            The token lets the server push your usage data to a Gist — it creates the Gist automatically.<br><br>
             1. Open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
             2. Name it anything (e.g. <em>claude-usage</em>)<br>
             3. Select scope: <strong>gist</strong> only<br>
@@ -176,22 +163,17 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       </div>
 
       <div class="step">
-        <div class="step-num" id="s5num">5</div>
+        <div class="step-num" id="s4num">4</div>
         <div class="step-body">
-          <div class="step-title">Enter your credentials</div>
-          <div class="step-desc">These are saved to a local <code>.env</code> file. Never shared.</div>
+          <div class="step-title">Enter your token</div>
+          <div class="step-desc">Saved to a local <code>.env</code> file. Never shared. A Gist is created for you automatically.</div>
           <div class="field" style="margin-top:12px">
-            <label>Gist ID</label>
-            <input type="text" id="inputGistId" placeholder="e.g. 8d5cd0b32306efa71751eb9458d03835" />
-          </div>
-          <div class="field">
             <label>GitHub Token</label>
             <input type="password" id="inputToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
           </div>
           <div id="configStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px"></div>
           <div class="row" style="margin-top:0">
-            <button class="btn btn-primary" id="btnSaveConfig">Deploy &amp; Save</button>
-            <button class="btn btn-secondary" id="btnTestConfig" style="display:none">Test Connection</button>
+            <button class="btn btn-primary" id="btnSaveConfig">Connect &amp; Save</button>
           </div>
         </div>
       </div>
@@ -346,12 +328,11 @@ async function loadStatus() {
 
     const envOk = d.gist_configured;
     document.getElementById('s3num').className = 'step-num ' + (envOk ? 'done' : '');
-    document.getElementById('s4num').className = 'step-num ' + (envOk ? 'done' : '');
-    document.getElementById('s5num').className = 'step-num ' + (envOk ? 'done' : 'active-step');
+    document.getElementById('s4num').className = 'step-num ' + (envOk ? 'done' : 'active-step');
 
-    if (envOk && !document.getElementById('inputGistId').value) {
+    if (envOk && !document.getElementById('inputToken').value) {
       document.getElementById('configStatus').style.color = '#22c55e';
-      document.getElementById('configStatus').textContent = '✓ Credentials saved and server is pushing to Gist';
+      document.getElementById('configStatus').textContent = '✓ Connected and pushing to Gist';
     }
 
     // Status tab
@@ -412,31 +393,30 @@ setInterval(() => {
 
 // ── Save config ───────────────────────────────────────────────
 document.getElementById('btnSaveConfig').addEventListener('click', async () => {
-  const gistId = document.getElementById('inputGistId').value.trim();
   const token  = document.getElementById('inputToken').value.trim();
   const status = document.getElementById('configStatus');
 
-  if (!gistId || !token) {
+  if (!token) {
     status.style.color = '#ef4444';
-    status.textContent = 'Both Gist ID and GitHub Token are required.';
+    status.textContent = 'GitHub Token is required.';
     return;
   }
 
   status.style.color = '#6b7280';
-  status.textContent = 'Saving...';
+  status.textContent = 'Validating token and creating Gist...';
 
   try {
     const r = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gist_id: gistId, github_token: token })
+      body: JSON.stringify({ github_token: token })
     });
     const d = await r.json();
     if (d.ok) {
       status.style.color = '#22c55e';
-      status.textContent = '✓ Saved! Server is now pushing to your Gist.';
+      status.textContent = '✓ Connected! Gist created for @' + (d.github_user || 'you') + '. Server is now pushing usage data.';
       document.getElementById('inputToken').value = '';
-      toast('Credentials saved', 'ok');
+      toast('Connected', 'ok');
       setTimeout(loadStatus, 1500);
     } else {
       status.style.color = '#ef4444';
