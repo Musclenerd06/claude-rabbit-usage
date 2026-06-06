@@ -6,6 +6,7 @@ const MAX_TOKENS_7D = 3991104;
 let isOnline = false;
 let refreshTimer = null;
 let showSettings = false;
+let firstLaunch = false;
 let statusCycleTimer = null;
 let currentStatusIdx = 0;
 let lastUpdatedTimer = null;
@@ -180,8 +181,13 @@ function renderSettings() {
         <button class="btn-back" id="btnBack">✕</button>
       </div>
       <div class="settings-body">
+        ${firstLaunch ? `
+        <div class="first-launch-banner">
+          <div class="first-launch-title">Welcome!</div>
+          <div class="first-launch-msg">Scan the QR code from the setup page to connect to your Gist — or paste your URL below.</div>
+        </div>` : ''}
         <label class="input-label">Endpoint URL</label>
-        <input type="text" id="urlInput" class="url-input" value="${apiUrl}" placeholder="Enter JSON endpoint URL" />
+        <input type="text" id="urlInput" class="url-input" value="${firstLaunch ? '' : apiUrl}" placeholder="Paste your Gist URL or scan QR" />
         <button class="btn-qr-scan" id="btnQrScan">Scan QR Code</button>
         <div class="settings-actions">
           <button class="btn-save" id="btnSave">Save</button>
@@ -205,8 +211,10 @@ function renderSettings() {
     const val = document.getElementById('urlInput').value.trim();
     if (val) {
       apiUrl = val;
+      firstLaunch = false;
       await saveEndpoint(apiUrl);
       showSettings = false;
+      if (!refreshTimer) refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
       fetchData();
     }
   });
@@ -416,29 +424,36 @@ async function saveEndpoint(url) {
 }
 
 async function loadEndpoint() {
+  let found = false;
   if (window.creationStorage) {
     try {
       const stored = await window.creationStorage.plain.getItem('endpoint');
       if (stored) {
         const parsed = JSON.parse(atob(stored));
-        if (parsed.url) apiUrl = parsed.url;
+        if (parsed.url) { apiUrl = parsed.url; found = true; }
       }
     } catch (e) { console.error('Load error:', e); }
   } else {
     const stored = localStorage.getItem('endpoint');
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (parsed.url) apiUrl = parsed.url;
+      if (parsed.url) { apiUrl = parsed.url; found = true; }
     }
   }
+  if (!found) firstLaunch = true;
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadEndpoint();
-  fetchData();
-  refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
+  if (firstLaunch) {
+    showSettings = true;
+    renderSettings();
+  } else {
+    fetchData();
+    refreshTimer = setInterval(fetchData, REFRESH_INTERVAL);
+  }
 });
 
 window.addEventListener('sideClick', () => {

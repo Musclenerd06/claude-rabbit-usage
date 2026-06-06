@@ -205,6 +205,28 @@ html, body {
   animation: flashAnim 0.35s ease;
 }
 
+/* First launch banner */
+.first-launch-banner {
+  background: #1a0d00;
+  border: 1.5px solid #FE5F00;
+  border-radius: 3vw;
+  padding: 2.5vw 4vw;
+  margin-bottom: 1vh;
+}
+
+.first-launch-title {
+  font-size: 4.5vw;
+  font-weight: 800;
+  color: #FE5F00;
+  margin-bottom: 1vw;
+}
+
+.first-launch-msg {
+  font-size: 3.2vw;
+  color: #d1d5db;
+  line-height: 1.5;
+}
+
 /* Settings credit */
 .settings-credit {
   text-align: center;
