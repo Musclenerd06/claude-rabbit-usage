@@ -75,8 +75,9 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 .stat-reset{font-size:.78rem;color:#4b5563;margin-left:90px;margin-bottom:16px;margin-top:-8px}
 
 /* QR section */
-.qr-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
-@media(max-width:560px){.qr-grid{grid-template-columns:1fr}}
+.qr-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px}
+@media(max-width:760px){.qr-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.qr-grid{grid-template-columns:1fr}}
 .qr-card{background:#111;border:1px solid #1f1f1f;border-radius:12px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center}
 .qr-card h3{font-size:.92rem;font-weight:700;color:#fff}
 .qr-card p{font-size:.78rem;color:#6b7280;line-height:1.5}
@@ -249,6 +250,13 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
           <div class="qr-not-configured">Configure your Gist ID in Setup first</div>
         </div>
         <div class="qr-url" id="gistUrlText"></div>
+      </div>
+
+      <div class="qr-card">
+        <h3>Rabbit R1 App <span style="background:#FE5F00;color:#fff;font-size:.65rem;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">INSTALL</span></h3>
+        <p>Scan with your Rabbit to install the Claude Usage Monitor app on the device.</p>
+        <img class="qr-img" id="appQrImg" src="/app-qr.png" alt="App QR Code" style="width:220px;height:220px;object-fit:contain;border:3px solid #FE5F00;border-radius:10px;" />
+        <p style="font-size:.74rem;color:#374151">Scan once per device</p>
       </div>
 
     </div>
