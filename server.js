@@ -913,6 +913,45 @@ ${gistUrl ? `
         }
       });
 
+    } else if (url === '/api/tunnel/start' && req.method === 'POST') {
+      // Start cloudflared if not running, return tunnel URL
+      const { execSync, spawn } = require('child_process');
+      const cfBin = path.join(__dirname, 'cloudflared');
+      if (!fs.existsSync(cfBin)) {
+        sendJSON(res, 404, { error: 'cloudflared binary not found — run install.sh first' });
+        return;
+      }
+      try { execSync("pkill -f 'cloudflared tunnel --url http://127.0.0.1:5050'"); } catch (_) {}
+      await new Promise(r => setTimeout(r, 800));
+      const cfLog = '/tmp/cloudflared-usage.log';
+      const cf = spawn(cfBin, ['tunnel', '--url', `http://127.0.0.1:${PORT}`],
+        { stdio: ['ignore', fs.openSync(cfLog, 'w'), fs.openSync(cfLog, 'a')] });
+      cf.unref();
+      // Wait up to 20s for the URL
+      let tunnelFound = '';
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+          const log = fs.readFileSync(cfLog, 'utf8');
+          const m = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+          if (m) { tunnelFound = m[0]; break; }
+        } catch (_) {}
+      }
+      if (tunnelFound) {
+        TUNNEL_URL = tunnelFound;
+        const envPath = path.join(__dirname, '.env');
+        let envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
+        if (envContent.includes('TUNNEL_URL=')) {
+          envContent = envContent.replace(/^TUNNEL_URL=.*/m, `TUNNEL_URL=${tunnelFound}`);
+        } else {
+          envContent += `\nTUNNEL_URL=${tunnelFound}`;
+        }
+        fs.writeFileSync(envPath, envContent.trim() + '\n');
+        sendJSON(res, 200, { ok: true, tunnel_url: tunnelFound, app_url: `${tunnelFound}/api/status` });
+      } else {
+        sendJSON(res, 504, { error: 'Tunnel started but URL not detected within 20s' });
+      }
+
     } else if (url === '/api/calibrate' && req.method === 'POST') {
       // Force an immediate API probe to get exact reset time from Anthropic headers
       _lastProbeAt = 0; // clear throttle so probe fires immediately

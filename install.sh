@@ -191,6 +191,50 @@ if [ "$PLATFORM" = "wsl" ]; then
   fi
 fi
 
+# ── Cloudflare Tunnel ─────────────────────────────────────────────────────
+echo ""
+sep
+echo -e "${BOLD}Cloudflare Tunnel${NC} (makes your R1 fetch live data directly)"
+echo ""
+
+CLOUDFLARED_BIN="$INSTALL_DIR/cloudflared"
+if [ ! -f "$CLOUDFLARED_BIN" ]; then
+  ARCH=$(uname -m)
+  case "$ARCH" in x86_64) CF_ARCH="amd64";; aarch64) CF_ARCH="arm64";; *) CF_ARCH="amd64";; esac
+  CF_OS="linux"; [ "$PLATFORM" = "mac" ] && CF_OS="darwin"
+  CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-${CF_OS}-${CF_ARCH}"
+  echo -e "  Downloading cloudflared..."
+  curl -fsSL "$CF_URL" -o "$CLOUDFLARED_BIN" && chmod +x "$CLOUDFLARED_BIN"
+  ok "cloudflared downloaded"
+else
+  ok "cloudflared already present"
+fi
+
+pkill -f "cloudflared tunnel --url http://127.0.0.1:5050" 2>/dev/null || true
+sleep 1
+
+CF_LOG="/tmp/cloudflared-usage.log"
+"$CLOUDFLARED_BIN" tunnel --url http://127.0.0.1:5050 > "$CF_LOG" 2>&1 &
+
+echo -e "  Waiting for tunnel URL..."
+TUNNEL_URL=""
+for i in $(seq 1 20); do
+  sleep 1
+  TUNNEL_URL=$(grep -o "https://[a-z0-9-]*\.trycloudflare\.com" "$CF_LOG" 2>/dev/null | head -1)
+  [ -n "$TUNNEL_URL" ] && break
+done
+
+if [ -n "$TUNNEL_URL" ]; then
+  ok "Tunnel active: ${BOLD}${TUNNEL_URL}${NC}"
+  if grep -q "^TUNNEL_URL=" "$ENV_FILE" 2>/dev/null; then
+    sed -i "s|^TUNNEL_URL=.*|TUNNEL_URL=$TUNNEL_URL|" "$ENV_FILE"
+  else
+    echo "TUNNEL_URL=$TUNNEL_URL" >> "$ENV_FILE"
+  fi
+else
+  warn "Tunnel URL not detected — set TUNNEL_URL manually in .env later"
+fi
+
 # ── Start server ───────────────────────────────────────────────────────────
 echo ""
 sep
@@ -216,12 +260,27 @@ ok "Current: ${BOLD}${CURRENT}%${NC}  Weekly: ${BOLD}${WEEKLY}%${NC}"
 
 open_browser
 
-# ── Gist QR in terminal ────────────────────────────────────────────────────
+# ── QR codes in terminal ───────────────────────────────────────────────────
 echo ""
 sep
-echo -e "${BOLD}Gist QR code${NC} — scan inside the Rabbit app (⚙ → Scan QR):"
-echo ""
-python3 -c "
+
+if [ -n "$TUNNEL_URL" ]; then
+  echo -e "${BOLD}Live Endpoint QR${NC} — scan inside the Rabbit app (⚙ → Scan QR) for real-time data:"
+  echo ""
+  python3 -c "
+try:
+    import qrcode
+    qr = qrcode.QRCode(border=1)
+    qr.add_data('${TUNNEL_URL}/api/status')
+    qr.make(fit=True)
+    qr.print_ascii(invert=True)
+except ImportError:
+    print('  (install python3-qrcode to see QR here)')
+" 2>/dev/null || true
+else
+  echo -e "${BOLD}Gist QR code${NC} — scan inside the Rabbit app (⚙ → Scan QR):"
+  echo ""
+  python3 -c "
 try:
     import qrcode
     qr = qrcode.QRCode(border=1)
@@ -231,6 +290,7 @@ try:
 except ImportError:
     print('  (install python3-qrcode to see QR here)')
 " 2>/dev/null || true
+fi
 
 # ── Done ───────────────────────────────────────────────────────────────────
 echo ""
@@ -239,8 +299,9 @@ echo ""
 echo -e "${GREEN}${BOLD}  All done!${NC}"
 echo ""
 echo -e "  ${BOLD}Dashboard:${NC}   ${CYAN}http://localhost:5050${NC}"
+echo -e "  ${BOLD}QR Codes:${NC}    ${CYAN}http://localhost:5050/qr${NC}"
+[ -n "$TUNNEL_URL" ] && echo -e "  ${BOLD}Live URL:${NC}    ${CYAN}${TUNNEL_URL}/api/status${NC}"
 echo -e "  ${BOLD}Gist URL:${NC}    ${CYAN}$GIST_URL${NC}"
-echo -e "  ${BOLD}Gist QR:${NC}     ${CYAN}http://localhost:5050/qr${NC}"
 echo ""
 if [ "$PLATFORM" = "wsl" ]; then
   echo -e "  To start again: double-click ${CYAN}Start Claude Usage Bridge${NC} on your Desktop"

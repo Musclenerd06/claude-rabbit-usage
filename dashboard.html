@@ -179,6 +179,19 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         </div>
       </div>
 
+      <div class="step">
+        <div class="step-num" id="s5num">5</div>
+        <div class="step-body">
+          <div class="step-title">Start Cloudflare Tunnel <span style="font-size:.7rem;background:#22c55e;color:#000;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">REAL-TIME</span></div>
+          <div class="step-desc">Opens a public URL so your Rabbit R1 can fetch live data directly from this server — no Gist lag, no CDN delay. Free, no account needed.</div>
+          <div id="tunnelStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px">Checking...</div>
+          <div class="row" style="margin-top:0">
+            <button class="btn btn-primary" id="btnStartTunnel">▶ Start Tunnel</button>
+          </div>
+          <div id="tunnelUrl" style="font-size:.74rem;color:#374151;margin-top:10px;font-family:monospace;word-break:break-all"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -340,6 +353,21 @@ async function loadStatus() {
     document.getElementById('s3num').className = 'step-num ' + (envOk ? 'done' : '');
     document.getElementById('s4num').className = 'step-num ' + (envOk ? 'done' : 'active-step');
 
+    // Step 5 — tunnel
+    const tunnelOk = !!d.tunnel_url;
+    document.getElementById('s5num').className = 'step-num ' + (tunnelOk ? 'done' : (envOk ? 'active-step' : ''));
+    const tunnelStatusEl = document.getElementById('tunnelStatus');
+    const tunnelUrlEl    = document.getElementById('tunnelUrl');
+    if (tunnelOk) {
+      tunnelStatusEl.style.color = '#22c55e';
+      tunnelStatusEl.textContent = '✓ Tunnel active';
+      tunnelUrlEl.textContent = d.app_url;
+    } else {
+      tunnelStatusEl.style.color = '#6b7280';
+      tunnelStatusEl.textContent = 'Not running — click Start Tunnel below';
+      tunnelUrlEl.textContent = '';
+    }
+
     if (envOk && !document.getElementById('inputToken').value) {
       document.getElementById('configStatus').style.color = '#22c55e';
       document.getElementById('configStatus').textContent = '✓ Connected and pushing to Gist';
@@ -464,6 +492,37 @@ document.getElementById('btnForceCollect').addEventListener('click', async () =>
     toast('Refresh triggered', 'ok');
     setTimeout(loadStatus, 1000);
   } catch(_) {}
+});
+
+document.getElementById('btnStartTunnel').addEventListener('click', async () => {
+  const btn = document.getElementById('btnStartTunnel');
+  const statusEl = document.getElementById('tunnelStatus');
+  btn.disabled = true;
+  btn.textContent = 'Starting... (up to 20s)';
+  statusEl.style.color = '#6b7280';
+  statusEl.textContent = 'Starting cloudflared tunnel...';
+  try {
+    const r = await fetch('/api/tunnel/start', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) {
+      statusEl.style.color = '#22c55e';
+      statusEl.textContent = '✓ Tunnel active';
+      document.getElementById('tunnelUrl').textContent = d.app_url;
+      document.getElementById('s5num').className = 'step-num done';
+      toast('Tunnel started — scan the QR Codes tab to update your app', 'ok');
+      setTimeout(loadStatus, 1500);
+    } else {
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = '✗ ' + (d.error || 'Failed');
+      toast(d.error || 'Tunnel failed', 'err');
+    }
+  } catch(e) {
+    statusEl.style.color = '#ef4444';
+    statusEl.textContent = '✗ Request failed';
+    toast('Could not reach server', 'err');
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ Start Tunnel';
 });
 </script>
 </body>
