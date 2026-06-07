@@ -23,6 +23,7 @@ const path  = require('path');
 const http  = require('http');
 const https = require('https');
 const os    = require('os');
+const { exec } = require('child_process');
 
 let QRCode = null;
 try { QRCode = require('qrcode'); } catch (_) {}
@@ -539,8 +540,8 @@ function watchLogs() {
 // ─────────────────────────────────────────────
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
 }
 
 function sendJSON(res, status, body) {
@@ -708,6 +709,28 @@ ${gistUrl
     } else if (url === '/api/restart' && req.method === 'POST') {
       sendJSON(res, 200, { ok: true, message: 'Restarting...' });
       setTimeout(() => process.exit(42), 300); // 42 = restart signal for start.js
+
+    } else if (url === '/telegram/launch' && req.method === 'POST') {
+      exec('adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p org.telegram.messenger', (err, stdout, stderr) => {
+        if (err) {
+          console.error('[telegram] launch failed:', err.message);
+          sendJSON(res, 500, { ok: false, error: err.message });
+        } else {
+          console.log('[telegram] launched');
+          sendJSON(res, 200, { ok: true, action: 'launch' });
+        }
+      });
+
+    } else if (url === '/telegram/close' && req.method === 'POST') {
+      exec('adb shell am force-stop org.telegram.messenger', (err, stdout, stderr) => {
+        if (err) {
+          console.error('[telegram] close failed:', err.message);
+          sendJSON(res, 500, { ok: false, error: err.message });
+        } else {
+          console.log('[telegram] closed');
+          sendJSON(res, 200, { ok: true, action: 'close' });
+        }
+      });
 
     } else if (url === '/') {
       // Serve dashboard
