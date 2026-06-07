@@ -315,29 +315,44 @@ function calcFromUsageEntries(entries) {
 
   const nextReset = getNext5hWindowReset(entries);
 
-  const windowMethod = (_apiResetTimeMs > 0 && _apiResetTimeMs > now)
-    ? 'api_header'
-    : 'dynamic_gap';
+  // If Anthropic gave us utilization directly, use it — it's authoritative
+  const apiHas5h = (_api5hUtilization !== null && _apiResetTimeMs > now);
+  const apiHas7d = (_api7dUtilization !== null);
+
+  const finalCurrentPct = apiHas5h
+    ? Math.min(100, Math.round(_api5hUtilization * 100))
+    : currentPct;
+  const finalWeeklyPct = apiHas7d
+    ? Math.min(100, Math.round(_api7dUtilization * 100))
+    : weeklyPct;
+
+  const weeklyReset = (_api7dResetMs > 0)
+    ? new Date(_api7dResetMs).toISOString().replace('.000Z', 'Z')
+    : getNextWeeklyResetTime().toISOString().replace('.000Z', 'Z');
+
+  const windowMethod = apiHas5h ? 'api_header' : 'dynamic_gap';
 
   return {
-    current_percent: currentPct,
-    weekly_percent:  weeklyPct,
+    current_percent: finalCurrentPct,
+    weekly_percent:  finalWeeklyPct,
     current_reset:   new Date(nextReset).toISOString().replace('.000Z', 'Z'),
-    weekly_reset:    getNextWeeklyResetTime().toISOString().replace('.000Z', 'Z'),
+    weekly_reset:    weeklyReset,
     last_updated:    new Date().toISOString().replace('.000Z', 'Z'),
     current_tokens:  out5h,
     weekly_tokens:   outWeek,
     max_tokens_5h:   MAX_OUTPUT_TOKENS_5H,
     max_tokens_7d:   MAX_OUTPUT_TOKENS_7D,
     _debug: {
-      method:            'token_usage',
-      window_method:     windowMethod,
-      api_reset_probed:  _apiResetTimeMs > 0 ? new Date(_apiResetTimeMs).toISOString() : null,
-      messages_5h:       e5h.length,
-      messages_week:     eWeek.length,
-      output_tokens_5h:  out5h,
-      output_tokens_week: outWeek,
-      week_start:        new Date(weekStart).toISOString(),
+      method:              'token_usage',
+      window_method:       windowMethod,
+      api_reset_probed:    _apiResetTimeMs > 0 ? new Date(_apiResetTimeMs).toISOString() : null,
+      api_5h_utilization:  _api5hUtilization,
+      api_7d_utilization:  _api7dUtilization,
+      messages_5h:         e5h.length,
+      messages_week:       eWeek.length,
+      output_tokens_5h:    out5h,
+      output_tokens_week:  outWeek,
+      week_start:          new Date(weekStart).toISOString(),
     }
   };
 }
@@ -495,13 +510,20 @@ function pushToGist(data) {
 }
 
 // ─────────────────────────────────────────────
-// API probe — read anthropic-ratelimit-tokens-reset header
-// Fires a 1-token haiku call to get the exact reset timestamp directly
-// from Anthropic. Cost: ~1 output token per probe. Negligible.
+// API probe — read Anthropic unified rate limit headers
+// Fires a 1-token haiku call; reads back:
+//   anthropic-ratelimit-unified-5h-reset       (epoch seconds)
+//   anthropic-ratelimit-unified-5h-utilization (0.0–1.0)
+//   anthropic-ratelimit-unified-7d-reset       (epoch seconds)
+//   anthropic-ratelimit-unified-7d-utilization (0.0–1.0)
+// Cost: ~1 output token per probe. Negligible.
 // ─────────────────────────────────────────────
-let _apiResetTimeMs  = 0;              // epoch ms — 0 = unknown
-let _lastProbeAt     = 0;             // prevent probe storms
-const PROBE_INTERVAL = 15 * 60 * 1000; // at most every 15 min
+let _apiResetTimeMs   = 0;    // epoch ms — 0 = unknown
+let _api5hUtilization = null; // 0.0–1.0 from Anthropic, or null
+let _api7dResetMs     = 0;
+let _api7dUtilization = null;
+let _lastProbeAt      = 0;
+const PROBE_INTERVAL  = 15 * 60 * 1000; // at most every 15 min
 
 function loadOAuthToken() {
   const creds = path.join(HOME, '.claude', '.credentials.json');
@@ -535,25 +557,39 @@ function probeApiForResetTime(force) {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
-      'anthropic-beta': 'oauth-2023-11-15',
       'Content-Length': Buffer.byteLength(body),
     }
   }, res => {
-    const resetHeader = res.headers['anthropic-ratelimit-tokens-reset'];
-    if (resetHeader) {
-      const resetMs = new Date(resetHeader).getTime();
-      if (Number.isFinite(resetMs) && resetMs > Date.now()) {
-        const prev = _apiResetTimeMs;
+    const h = res.headers;
+    const reset5hSec  = Number(h['anthropic-ratelimit-unified-5h-reset']   || 0);
+    const util5h      = parseFloat(h['anthropic-ratelimit-unified-5h-utilization'] ?? 'NaN');
+    const reset7dSec  = Number(h['anthropic-ratelimit-unified-7d-reset']   || 0);
+    const util7d      = parseFloat(h['anthropic-ratelimit-unified-7d-utilization'] ?? 'NaN');
+
+    let changed = false;
+
+    if (reset5hSec > 0) {
+      const resetMs = reset5hSec * 1000;
+      if (resetMs !== _apiResetTimeMs) {
         _apiResetTimeMs = resetMs;
-        if (prev !== resetMs) {
-          console.log(`[probe] 5h reset calibrated: ${new Date(resetMs).toISOString()}`);
-          collect(); // re-compute % with fresh window boundary
-        }
+        changed = true;
+        console.log(`[probe] 5h reset: ${new Date(resetMs).toISOString()}`);
       }
-    } else {
-      if (DEBUG) console.log('[probe] No ratelimit-tokens-reset header in response');
     }
-    res.resume(); // drain body to free socket
+    if (!isNaN(util5h)) {
+      _api5hUtilization = util5h;
+      console.log(`[probe] 5h utilization: ${Math.round(util5h * 100)}%`);
+    }
+    if (reset7dSec > 0) {
+      _api7dResetMs = reset7dSec * 1000;
+    }
+    if (!isNaN(util7d)) {
+      _api7dUtilization = util7d;
+      console.log(`[probe] 7d utilization: ${Math.round(util7d * 100)}%`);
+    }
+
+    if (changed) collect(); // re-compute with fresh boundary
+    res.resume();
   });
 
   req.on('error', err => {
