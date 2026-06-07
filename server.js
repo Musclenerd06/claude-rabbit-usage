@@ -523,7 +523,7 @@ let _api5hUtilization = null; // 0.0–1.0 from Anthropic, or null
 let _api7dResetMs     = 0;
 let _api7dUtilization = null;
 let _lastProbeAt      = 0;
-const PROBE_INTERVAL  = 15 * 60 * 1000; // at most every 15 min
+const PROBE_INTERVAL  = 30 * 1000; // matches collect/Gist interval
 
 function loadOAuthToken() {
   const creds = path.join(HOME, '.claude', '.credentials.json');
