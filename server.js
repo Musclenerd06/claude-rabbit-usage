@@ -112,22 +112,52 @@ const WEEKLY_RESET_HOUR = 17;  // 17:00 UTC
 // Defaults to rolling window if not set.
 const RESET_ANCHOR_UTC = process.env.RESET_ANCHOR_UTC || '';
 
-function getCurrent5hWindowStart() {
-  if (!RESET_ANCHOR_UTC) return Date.now() - WINDOW_5H; // rolling fallback
-  const [hStr, mStr] = RESET_ANCHOR_UTC.split(':');
-  const anchorMinutes = Number(hStr) * 60 + Number(mStr); // minutes from UTC midnight
+// Dynamic window start: scan the last 10h of token entries and find the most
+// recent gap >= 20 min (indicating a reset / idle boundary). That gap's end is
+// the start of the current 5h window. Falls back to a rolling 5h window when
+// there are no tokens or the gap is older than 5h.
+function getDynamicWindowStart(entries) {
   const now = Date.now();
-  const todayMidnightUTC = new Date();
-  todayMidnightUTC.setUTCHours(0, 0, 0, 0);
-  const base = todayMidnightUTC.getTime() + anchorMinutes * 60000;
-  // Find most recent window start <= now
-  const elapsed = now - base;
-  const windowsElapsed = Math.floor(elapsed / WINDOW_5H);
-  return base + windowsElapsed * WINDOW_5H;
+  const floor = now - WINDOW_5H;                  // never go back more than 5h
+  const lookback = now - 2 * WINDOW_5H;           // scan last 10h
+
+  const recent = entries
+    .filter(e => e.ts >= lookback)
+    .sort((a, b) => a.ts - b.ts);
+
+  if (recent.length === 0) return floor;
+
+  // Walk forward; every gap >= 20 min is a candidate window boundary
+  const GAP_MS = 20 * 60 * 1000;
+  let windowStart = recent[0].ts;
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i].ts - recent[i - 1].ts >= GAP_MS) {
+      windowStart = recent[i].ts;
+    }
+  }
+
+  return Math.max(windowStart, floor);
 }
 
-function getNext5hWindowReset() {
-  return getCurrent5hWindowStart() + WINDOW_5H;
+function getCurrent5hWindowStart(entries) {
+  // Legacy anchor path kept as fallback when no token data available
+  if (!entries || entries.length === 0) {
+    if (!RESET_ANCHOR_UTC) return Date.now() - WINDOW_5H;
+    const [hStr, mStr] = RESET_ANCHOR_UTC.split(':');
+    const anchorMinutes = Number(hStr) * 60 + Number(mStr);
+    const now = Date.now();
+    const todayMidnightUTC = new Date();
+    todayMidnightUTC.setUTCHours(0, 0, 0, 0);
+    const base = todayMidnightUTC.getTime() + anchorMinutes * 60000;
+    const elapsed = now - base;
+    const windowsElapsed = Math.floor(elapsed / WINDOW_5H);
+    return base + windowsElapsed * WINDOW_5H;
+  }
+  return getDynamicWindowStart(entries);
+}
+
+function getNext5hWindowReset(entries) {
+  return getCurrent5hWindowStart(entries) + WINDOW_5H;
 }
 
 
@@ -263,7 +293,7 @@ function getNextWeeklyResetTime() {
 function calcFromUsageEntries(entries) {
   const now        = Date.now();
   const weekStart  = getWeeklyResetTime().getTime();
-  const win5hStart = getCurrent5hWindowStart();
+  const win5hStart = getCurrent5hWindowStart(entries);
 
   const e5h   = entries.filter(e => e.ts >= win5hStart);
   const eWeek = entries.filter(e => e.ts >= weekStart);
@@ -274,7 +304,7 @@ function calcFromUsageEntries(entries) {
   const currentPct = Math.min(100, Math.floor(out5h   / MAX_OUTPUT_TOKENS_5H * 100));
   const weeklyPct  = Math.min(100, Math.floor(outWeek / MAX_OUTPUT_TOKENS_7D * 100));
 
-  const nextReset = getNext5hWindowReset();
+  const nextReset = getNext5hWindowReset(entries);
 
   return {
     current_percent: currentPct,
