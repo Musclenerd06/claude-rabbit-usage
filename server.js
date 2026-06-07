@@ -75,6 +75,24 @@ const FILE_OUTPUT = resolveFileOutput();
 let GITHUB_TOKEN   = process.env.GITHUB_TOKEN || '';
 let GIST_ID        = process.env.GIST_ID || '';
 let GITHUB_USER    = process.env.GITHUB_USER || '';
+let TUNNEL_URL     = process.env.TUNNEL_URL || '';
+
+// Auto-detect tunnel URL from running cloudflared process if not set
+function detectTunnelUrl() {
+  if (TUNNEL_URL) return;
+  try {
+    const { execSync } = require('child_process');
+    const pid = execSync("pgrep -f 'cloudflared tunnel'", { encoding: 'utf8' }).trim().split('\n')[0];
+    if (!pid) return;
+    const log = fs.readFileSync(`/proc/${pid}/fd/1`, 'utf8');
+    const m = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
+    if (m) {
+      TUNNEL_URL = m[0];
+      console.log(`[tunnel] Auto-detected: ${TUNNEL_URL}`);
+    }
+  } catch (_) {}
+}
+detectTunnelUrl();
 
 const HOME = os.homedir();
 
@@ -426,9 +444,13 @@ function resolveGithubUser() {
 // floored at 36s (= 100/hr ceiling) and capped at 120s.
 let _gistBackoffUntil  = 0;     // epoch ms — skip all pushes until this clears
 let _gistLastPushedAt  = 0;     // epoch ms — enforce computed interval
+let _gistLastSuccessAt = 0;     // epoch ms — last confirmed successful push
 let _gistRemaining     = 100;   // updated from x-ratelimit-remaining header
 let _gistResetEpoch    = 0;     // updated from x-ratelimit-reset header
 let _lastPushedPercent = null;
+
+const GIST_MAX_BACKOFF_MS  = 20 * 60 * 1000;  // never back off longer than 20 min
+const GIST_STALE_ALERT_MS  = 15 * 60 * 1000;  // warn + self-heal if no push in 15 min
 
 function gistIntervalMs() {
   const now = Date.now();
@@ -443,6 +465,9 @@ function pushToGist(data) {
   const now = Date.now();
   if (now < _gistBackoffUntil) return; // rate-limited
   if (now - _gistLastPushedAt < gistIntervalMs()) return; // pacing
+
+  // Don't push until we have an authoritative % from Anthropic headers
+  if (_api5hUtilization === null) return;
 
   // Skip push if nothing changed (saves quota)
   if (data.current_percent === _lastPushedPercent) return;
@@ -478,6 +503,7 @@ function pushToGist(data) {
     res.on('end', () => {
       if (res.statusCode === 200 || res.statusCode === 201) {
         _lastPushedPercent = data.current_percent;
+        _gistLastSuccessAt = Date.now();
         const nextSec = Math.round(gistIntervalMs() / 1000);
         console.log(`[gist] Pushed ${data.current_percent}% OK  (quota: ${remaining} left, next in ~${nextSec}s)`);
       } else if (res.statusCode === 403 || res.statusCode === 429) {
@@ -491,6 +517,8 @@ function pushToGist(data) {
         } else {
           backoffUntil = Date.now() + 20 * 60 * 1000;
         }
+        // Cap backoff so a bad header can never freeze pushes for hours
+        backoffUntil = Math.min(backoffUntil, Date.now() + GIST_MAX_BACKOFF_MS);
         _gistBackoffUntil = backoffUntil;
         let msg = raw;
         try { msg = JSON.parse(raw).message || raw; } catch (_) {}
@@ -749,8 +777,18 @@ function createServer() {
       res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
       res.end(buf);
 
+    } else if (url === '/tunnel-qr.png') {
+      const appUrl = TUNNEL_URL ? `${TUNNEL_URL}/api/status` : null;
+      if (!appUrl) { sendJSON(res, 404, { error: 'TUNNEL_URL not set in .env' }); return; }
+      const buf = await qrPng(appUrl);
+      if (!buf) { sendJSON(res, 503, { error: 'qrcode package not installed — run npm install' }); return; }
+      cors(res);
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'no-cache' });
+      res.end(buf);
+
     } else if (url === '/qr') {
       const gistUrl = gistRawUrl();
+      const appUrl  = TUNNEL_URL ? `${TUNNEL_URL}/api/status` : null;
       cors(res);
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(`<!DOCTYPE html>
@@ -758,25 +796,39 @@ function createServer() {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Claude Usage — Share QR</title>
+<title>Claude Usage — QR Codes</title>
 <style>
   body { margin:0; background:#000; color:#fff; font-family:-apple-system,sans-serif;
-         display:flex; flex-direction:column; align-items:center; justify-content:center;
-         min-height:100vh; padding:24px; box-sizing:border-box; }
-  h2 { font-size:1.3rem; margin:0 0 8px; color:#FE5F00; }
-  p  { font-size:.85rem; color:#6b7280; margin:0 0 24px; text-align:center; }
-  img { border:4px solid #fff; border-radius:12px; width:300px; height:300px; background:#fff; }
-  .url { margin-top:20px; font-size:.75rem; color:#4b5563; word-break:break-all;
-         max-width:340px; text-align:center; font-family:monospace; }
-  .none { color:#ef4444; font-size:1rem; }
+         display:flex; flex-direction:column; align-items:center;
+         min-height:100vh; padding:24px; box-sizing:border-box; gap:40px; }
+  h2 { font-size:1.3rem; margin:0 0 4px; color:#FE5F00; text-align:center; }
+  .card { display:flex; flex-direction:column; align-items:center; }
+  .badge { font-size:.7rem; background:#22c55e; color:#000; padding:2px 8px;
+           border-radius:99px; font-weight:700; margin-bottom:12px; }
+  .badge.gist { background:#6b7280; }
+  img { border:4px solid #fff; border-radius:12px; width:260px; height:260px; background:#fff; }
+  .url { margin-top:12px; font-size:.7rem; color:#4b5563; word-break:break-all;
+         max-width:300px; text-align:center; font-family:monospace; }
+  .none { color:#ef4444; font-size:.9rem; text-align:center; }
 </style>
 </head>
 <body>
-<h2>Scan to configure Rabbit app</h2>
-<p>Point your Rabbit at this code — it fills in the endpoint automatically.</p>
-${gistUrl
-  ? `<img src="/gist-qr.png" alt="QR code"><p class="url">${gistUrl}</p>`
-  : `<p class="none">GIST_ID not configured in .env — set it up first.</p>`}
+<h2>Scan to set app endpoint</h2>
+
+${appUrl ? `
+<div class="card">
+  <div class="badge">LIVE — real-time via tunnel</div>
+  <img src="/tunnel-qr.png" alt="Tunnel QR">
+  <p class="url">${appUrl}</p>
+</div>` : `<p class="none">TUNNEL_URL not set in .env</p>`}
+
+${gistUrl ? `
+<div class="card">
+  <div class="badge gist">Fallback — Gist (may lag ~5 min)</div>
+  <img src="/gist-qr.png" alt="Gist QR">
+  <p class="url">${gistUrl}</p>
+</div>` : ''}
+
 </body>
 </html>`);
 
@@ -785,12 +837,15 @@ ${gistUrl
       if (!_latestData) collect();
       const d = _latestData;
       const gistUrl = gistRawUrl();
+      const appUrl = TUNNEL_URL ? `${TUNNEL_URL}/api/status` : null;
       sendJSON(res, 200, {
         server:           'running',
         logs_found:       files.length > 0,
         log_count:        files.length,
         gist_configured:  !!(GITHUB_TOKEN && GIST_ID),
         gist_url:         gistUrl,
+        tunnel_url:       TUNNEL_URL || null,
+        app_url:          appUrl,
         current_percent:  d ? d.current_percent  : null,
         weekly_percent:   d ? d.weekly_percent   : null,
         current_reset:    d ? d.current_reset    : null,
@@ -907,6 +962,28 @@ ${gistUrl
         res.end('Claude Usage Bridge running. dashboard.html not found.');
       }
 
+    } else if (url === '/app') {
+      // Self-contained R1 usage app — fetches /api/status from same origin, no Gist/CDN
+      const jsPath  = path.join(__dirname, 'rabbit', 'main-src.js');
+      const cssPath = path.join(__dirname, 'rabbit', 'style-src.css');
+      const js  = fs.existsSync(jsPath)  ? fs.readFileSync(jsPath,  'utf8') : '';
+      const css = fs.existsSync(cssPath) ? fs.readFileSync(cssPath, 'utf8') : '';
+      cors(res);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(`<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=240,height=282,user-scalable=no,initial-scale=1.0">
+<title>Claude Usage</title>
+<style>${css}</style>
+</head>
+<body>
+<div id="app"></div>
+<script>${js}</script>
+</body>
+</html>`);
+
     } else if (url === '/app-qr.png') {
       const qrPath = path.join(__dirname, 'rabbit', 'app-qr.png');
       if (fs.existsSync(qrPath)) {
@@ -982,7 +1059,21 @@ collect();
 // Poll every SCAN_MS for local/in-memory updates
 setInterval(collect, SCAN_MS);
 
-// Gist push now happens inside collect() on every scan cycle
+// Watchdog: if Gist hasn't pushed successfully in GIST_STALE_ALERT_MS, clear
+// backoff and pacing state so the next collect() forces a fresh attempt.
+setInterval(() => {
+  if (!GITHUB_TOKEN || !GIST_ID) return;
+  const silentMs = Date.now() - (_gistLastSuccessAt || 0);
+  if (silentMs > GIST_STALE_ALERT_MS) {
+    const silentMin = Math.round(silentMs / 60000);
+    console.log(`[gist-watchdog] No successful push in ${silentMin} min — clearing backoff and forcing retry`);
+    _gistBackoffUntil  = 0;
+    _gistLastPushedAt  = 0;
+    _lastPushedPercent = null; // force content check to pass
+  }
+}, 60 * 1000); // check every minute
+
+// Gist push happens inside collect() on every scan cycle
 
 // Watch log directories for fast updates
 watchLogs();

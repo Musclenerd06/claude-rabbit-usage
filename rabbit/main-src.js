@@ -1,4 +1,4 @@
-let apiUrl = ``;
+let apiUrl = `/api/status`;
 const REFRESH_INTERVAL = 30000;
 const MAX_TOKENS_5H = 572626;
 const MAX_TOKENS_7D = 3991104;
