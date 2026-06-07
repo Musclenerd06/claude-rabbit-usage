@@ -1,5 +1,7 @@
 let apiUrl = `/api/status`;
-const REFRESH_INTERVAL = 30000;
+let fallbackUrl = '';
+let usingFallback = false;
+const REFRESH_INTERVAL = 10000; // 10s — snappy on tunnel; helps recover from fallback quickly
 const MAX_TOKENS_5H = 572626;
 const MAX_TOKENS_7D = 3991104;
 
@@ -390,7 +392,13 @@ async function fetchData() {
     })
     .then(data => {
       isOnline = true;
+      usingFallback = false;
       stopStatusCycle();
+      // Cache gist_url as fallback for when tunnel drops
+      if (data.gist_url && data.gist_url !== fallbackUrl) {
+        fallbackUrl = data.gist_url;
+        try { localStorage.setItem('claude_fallback', fallbackUrl); } catch(_) {}
+      }
       render(data);
       const sl = document.getElementById('statusLine');
       if (sl) {
@@ -404,9 +412,29 @@ async function fetchData() {
     })
     .catch(err => {
       console.error('FETCH ERROR:', err);
-      isOnline = false;
-      stopStatusCycle();
-      render(null);
+      if (fallbackUrl && !usingFallback) {
+        // Primary failed — try Gist fallback
+        fetch(fallbackUrl + '?t=' + Date.now(), { cache: 'no-store' })
+          .then(r => r.json())
+          .then(fbData => {
+            isOnline = true;
+            usingFallback = true;
+            stopStatusCycle();
+            render(fbData);
+            const sl = document.getElementById('statusLine');
+            if (sl) { sl.innerHTML = '▲ Gist fallback'; sl.style.color = '#eab308'; }
+          })
+          .catch(() => {
+            usingFallback = false;
+            isOnline = false;
+            stopStatusCycle();
+            render(null);
+          });
+      } else {
+        isOnline = false;
+        stopStatusCycle();
+        render(null);
+      }
     });
 }
 
@@ -425,16 +453,18 @@ function saveEndpoint(url) {
 
 function loadEndpoint() {
   const stores = [localStorage, sessionStorage];
+  let found = false;
   for (const store of stores) {
     try {
       const stored = store.getItem('claude_endpoint');
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.url) { apiUrl = parsed.url; return; }
+        if (parsed.url) { apiUrl = parsed.url; found = true; break; }
       }
     } catch (_) {}
   }
-  firstLaunch = true;
+  try { fallbackUrl = localStorage.getItem('claude_fallback') || ''; } catch (_) {}
+  if (!found) firstLaunch = true;
 }
 
 /* ── Init ─────────────────────────────────────────────────────── */

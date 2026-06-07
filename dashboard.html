@@ -97,6 +97,20 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 .badge.green{border-color:#166534;color:#22c55e;background:#052e16}
 .badge.red{border-color:#7f1d1d;color:#ef4444;background:#1f0505}
 .sep{height:1px;background:#1a1a1a;margin:20px 0}
+
+/* Mode selector */
+.mode-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 2px}
+@media(max-width:640px){.mode-cards{grid-template-columns:1fr}}
+.mode-card{border:2px solid #1e1e1e;border-radius:10px;padding:14px 12px;cursor:pointer;transition:border-color .15s,background .15s;background:#0a0a0a;position:relative}
+.mode-card:hover{border-color:#3a3a3a}
+.mode-card.selected{border-color:#FE5F00;background:#120800}
+.mode-icon{font-size:1.1rem;margin-bottom:8px;color:#4b5563}
+.mode-card.selected .mode-icon{color:#FE5F00}
+.mode-name{font-size:.86rem;font-weight:700;color:#9ca3af;margin-bottom:4px}
+.mode-card.selected .mode-name{color:#FE5F00}
+.mode-desc{font-size:.73rem;color:#374151;line-height:1.5}
+.mode-card.selected .mode-desc{color:#6b7280}
+.mode-rec{position:absolute;top:-8px;right:8px;background:#FE5F00;color:#fff;font-size:.62rem;font-weight:800;padding:2px 7px;border-radius:99px;letter-spacing:.3px}
 </style>
 </head>
 <body>
@@ -124,22 +138,24 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
   <!-- ── SETUP ── -->
   <div class="section active" id="tab-setup">
 
-    <div class="card">
-      <h2>Getting Started</h2>
-      <p>Follow these 5 steps once and you're done forever. Each step takes about a minute. We'll tell you exactly what to click.</p>
+    <div class="card" style="background:linear-gradient(135deg,#111,#0e0a06);border-color:#2a1a08">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:44px;height:44px;background:#FE5F00;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:900;color:#fff;flex-shrink:0">C</div>
+        <div>
+          <h2 style="margin-bottom:3px">Connect your Rabbit R1</h2>
+          <p>One-time setup &mdash; about 5 minutes. Follow each step in order.</p>
+        </div>
+      </div>
     </div>
 
     <div class="card">
 
       <div class="step">
-        <div class="step-num done" id="s1num">1</div>
+        <div class="step-num done" id="s1num">&#10003;</div>
         <div class="step-body">
           <div class="step-title">Server is running</div>
-          <div class="step-desc">
-            This app runs a small background program on your computer that reads your Claude usage and makes it available to your Rabbit R1.
-            If you can see this page, that program is already running — nothing to do here.
-          </div>
-          <div class="step-check" id="s1check">✓ Running on port 5050</div>
+          <div class="step-desc">The bridge is active on your computer and reading your Claude activity. If you can see this page, this step is already done.</div>
+          <div class="step-check" id="s1check">&#10003; Running on port 5050</div>
         </div>
       </div>
 
@@ -147,10 +163,7 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="step-num" id="s2num">2</div>
         <div class="step-body">
           <div class="step-title">Claude Code activity detected</div>
-          <div class="step-desc">
-            The server looks for Claude Code conversation logs on your computer to count how many tokens you've used.
-            If this step fails, open Claude Code and have at least one conversation, then come back here.
-          </div>
+          <div class="step-desc">The server scans Claude Code&#39;s local conversation logs to count your token usage. If this fails, open Claude Code, start a conversation, then come back here.</div>
           <div id="s2check" class="step-check fail">Checking...</div>
         </div>
       </div>
@@ -158,55 +171,83 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="step">
         <div class="step-num" id="s3num">3</div>
         <div class="step-body">
-          <div class="step-title">Create a free GitHub token</div>
-          <div class="step-desc">
-            GitHub is used as a free middleman to store your usage number so your Rabbit R1 can read it from anywhere.
-            You need a free GitHub account — <a href="https://github.com/signup" target="_blank">sign up here if you don't have one</a>.<br><br>
-            <strong>Once you have an account:</strong><br><br>
-            1. Go to <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
-            2. In the <strong>Note</strong> field, type anything — e.g. <em>claude-usage</em><br>
-            3. Scroll down to <strong>Select scopes</strong> and tick the box next to <strong>gist</strong> only — nothing else<br>
-            4. Scroll to the bottom and click the green <strong>Generate token</strong> button<br>
-            5. Copy the token that appears — it starts with <code>ghp_</code>. <strong>You only see it once, so copy it now.</strong>
+          <div class="step-title">How should your Rabbit R1 receive data?</div>
+          <div class="step-desc">Choose a connection type. Not sure? Pick <strong>Both</strong> &mdash; it&#39;s the most reliable option.</div>
+          <div class="mode-cards">
+            <div class="mode-card" data-mode="realtime" id="modeRealtime">
+              <div class="mode-icon">&#9889;</div>
+              <div class="mode-name">Real-time only</div>
+              <div class="mode-desc">Direct link from your PC. Instant updates. Requires PC and tunnel to be running.</div>
+            </div>
+            <div class="mode-card" data-mode="gist" id="modeGist">
+              <div class="mode-icon">&#9729;</div>
+              <div class="mode-name">Gist relay only</div>
+              <div class="mode-desc">GitHub stores your data. Works even if your PC is off. May lag 1&ndash;5 minutes.</div>
+            </div>
+            <div class="mode-card selected" data-mode="both" id="modeBoth">
+              <div class="mode-rec">Recommended</div>
+              <div class="mode-icon">&#10022;</div>
+              <div class="mode-name">Both</div>
+              <div class="mode-desc">Real-time first. Auto-switches to Gist if the tunnel drops.</div>
+            </div>
           </div>
+          <div id="modeConfirm" style="font-size:.78rem;color:#22c55e;margin-top:10px;display:none">&#10003; Mode saved</div>
         </div>
       </div>
 
-      <div class="step">
-        <div class="step-num" id="s4num">4</div>
-        <div class="step-body">
-          <div class="step-title">Paste your token here</div>
-          <div class="step-desc">
-            Paste the token you just copied below and click Connect. We'll verify it and automatically create a private storage file (called a Gist) on GitHub to hold your usage data.
-            Your token is saved only on this computer and is never shared with anyone.
-          </div>
-          <div class="field" style="margin-top:12px">
-            <label>GitHub Token (starts with ghp_)</label>
-            <input type="password" id="inputToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
-          </div>
-          <div id="configStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px"></div>
-          <div class="row" style="margin-top:0">
-            <button class="btn btn-primary" id="btnSaveConfig">Connect &amp; Save</button>
+      <div id="stepGroupGist">
+
+        <div class="step">
+          <div class="step-num" id="s4num">4</div>
+          <div class="step-body">
+            <div class="step-title">Create a free GitHub token</div>
+            <div class="step-desc">
+              GitHub is used as a free relay to store your usage number. You need a free account &mdash; <a href="https://github.com/signup" target="_blank">sign up here if you don&#39;t have one</a>.<br><br>
+              1. Go to <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
+              2. In <strong>Note</strong>, write anything &mdash; e.g. <em>claude-usage</em><br>
+              3. Under <strong>Select scopes</strong>, tick <strong>gist</strong> only &mdash; nothing else<br>
+              4. Click the green <strong>Generate token</strong> button<br>
+              5. Copy the token &mdash; it starts with <code>ghp_</code>. <strong>You only see it once, so copy it now.</strong>
+            </div>
           </div>
         </div>
+
+        <div class="step">
+          <div class="step-num" id="s5num">5</div>
+          <div class="step-body">
+            <div class="step-title">Paste your token and connect</div>
+            <div class="step-desc">Your token stays on this computer only and is never shared with anyone else.</div>
+            <div class="field" style="margin-top:12px">
+              <label>GitHub Token (starts with ghp_)</label>
+              <input type="password" id="inputToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+            </div>
+            <div id="configStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px"></div>
+            <div class="row" style="margin-top:0">
+              <button class="btn btn-primary" id="btnSaveConfig">Connect &amp; Save</button>
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <div class="step">
-        <div class="step-num" id="s5num">5</div>
-        <div class="step-body">
-          <div class="step-title">Open a live connection to your Rabbit R1 <span style="font-size:.7rem;background:#22c55e;color:#000;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">REAL-TIME</span></div>
-          <div class="step-desc">
-            This creates a secure temporary link between your computer and the internet so your Rabbit R1 can get your usage data in real time — like opening a window between your PC and your device.
-            It's completely free, needs no account, and takes about 10 seconds. Click the button below and wait for the green confirmation.
-            <br><br>
-            Once it's active, go to the <strong>QR Codes</strong> tab and scan the green <strong>Live Endpoint</strong> QR inside your Rabbit app to connect it instantly.
+      <div id="stepGroupTunnel">
+
+        <div class="step" style="border-bottom:none;padding-bottom:0">
+          <div class="step-num" id="s6num">6</div>
+          <div class="step-body">
+            <div class="step-title">Start a live connection <span style="font-size:.68rem;background:#22c55e;color:#000;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">REAL-TIME</span></div>
+            <div class="step-desc">
+              This creates a free, secure link between your PC and the internet so your R1 can get data in real time &mdash; no account needed, takes about 10 seconds to start.<br><br>
+              Once active, go to <strong>QR Codes</strong> and scan the green <strong>Live Endpoint</strong> QR code inside your Rabbit app to connect it.
+            </div>
+            <div id="tunnelStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px">Checking...</div>
+            <div class="row" style="margin-top:0">
+              <button class="btn btn-primary" id="btnStartTunnel">&#9654; Start Live Connection</button>
+            </div>
+            <div id="tunnelUrl" style="font-size:.74rem;color:#374151;margin-top:10px;font-family:monospace;word-break:break-all"></div>
           </div>
-          <div id="tunnelStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px">Checking...</div>
-          <div class="row" style="margin-top:0">
-            <button class="btn btn-primary" id="btnStartTunnel">▶ Start Live Connection</button>
-          </div>
-          <div id="tunnelUrl" style="font-size:.74rem;color:#374151;margin-top:10px;font-family:monospace;word-break:break-all"></div>
         </div>
+
       </div>
 
     </div>
@@ -347,6 +388,7 @@ function timeSince(iso) {
 
 // ── Status polling ─────────────────────────────────────────────
 let _gistUrl = '';
+let _setupMode = 'both';
 
 async function loadStatus() {
   try {
@@ -359,7 +401,8 @@ async function loadStatus() {
 
     // Setup steps
     const logsOk = d.logs_found;
-    document.getElementById('s2num').className = 'step-num ' + (logsOk ? 'done' : 'active-step');
+    const s2el = document.getElementById('s2num');
+    if (s2el) { s2el.className = 'step-num ' + (logsOk ? 'done' : 'active-step'); if (logsOk) s2el.textContent = '✓'; }
     const s2c = document.getElementById('s2check');
     s2c.className = 'step-check' + (logsOk ? '' : ' fail');
     s2c.textContent = logsOk
@@ -367,12 +410,23 @@ async function loadStatus() {
       : '✗ No Claude Code logs found — run Claude Code first';
 
     const envOk = d.gist_configured;
-    document.getElementById('s3num').className = 'step-num ' + (envOk ? 'done' : '');
-    document.getElementById('s4num').className = 'step-num ' + (envOk ? 'done' : 'active-step');
+    if (envOk) {
+      const s4e = document.getElementById('s4num');
+      const s5e = document.getElementById('s5num');
+      if (s4e) { s4e.className = 'step-num done'; s4e.textContent = '✓'; }
+      if (s5e) { s5e.className = 'step-num done'; s5e.textContent = '✓'; }
+    } else {
+      const s4e = document.getElementById('s4num');
+      if (s4e && !s4e.classList.contains('done')) s4e.className = 'step-num active-step';
+    }
 
-    // Step 5 — tunnel
+    // Tunnel step (s6)
     const tunnelOk = !!d.tunnel_url;
-    document.getElementById('s5num').className = 'step-num ' + (tunnelOk ? 'done' : (envOk ? 'active-step' : ''));
+    const s6e = document.getElementById('s6num');
+    if (s6e) {
+      if (tunnelOk) { s6e.className = 'step-num done'; s6e.textContent = '✓'; }
+      else s6e.className = 'step-num ' + (_setupMode === 'realtime' || (envOk && _setupMode !== 'gist') ? 'active-step' : '');
+    }
     const tunnelStatusEl = document.getElementById('tunnelStatus');
     const tunnelUrlEl    = document.getElementById('tunnelUrl');
     if (tunnelOk) {
@@ -525,7 +579,8 @@ document.getElementById('btnStartTunnel').addEventListener('click', async () => 
       statusEl.style.color = '#22c55e';
       statusEl.textContent = '✓ Tunnel active';
       document.getElementById('tunnelUrl').textContent = d.app_url;
-      document.getElementById('s5num').className = 'step-num done';
+      const s6done = document.getElementById('s6num');
+      if (s6done) { s6done.className = 'step-num done'; s6done.textContent = '✓'; }
       toast('Tunnel started — scan the QR Codes tab to update your app', 'ok');
       setTimeout(loadStatus, 1500);
     } else {
@@ -541,6 +596,53 @@ document.getElementById('btnStartTunnel').addEventListener('click', async () => 
   btn.disabled = false;
   btn.textContent = '▶ Start Tunnel';
 });
+
+// ── Mode selector ──────────────────────────────────────────────
+function applySetupMode(mode) {
+  _setupMode = mode;
+  try { localStorage.setItem('setup_mode', mode); } catch(_) {}
+
+  document.querySelectorAll('.mode-card').forEach(c => {
+    c.classList.toggle('selected', c.dataset.mode === mode);
+  });
+
+  const showGist     = (mode === 'gist' || mode === 'both');
+  const showRealtime = (mode === 'realtime' || mode === 'both');
+  const gistGrp = document.getElementById('stepGroupGist');
+  const tunGrp  = document.getElementById('stepGroupTunnel');
+  if (gistGrp)  gistGrp.style.display  = showGist ? '' : 'none';
+  if (tunGrp)   tunGrp.style.display   = showRealtime ? '' : 'none';
+
+  // Dynamic step numbering for visible steps
+  let n = 4;
+  const s4 = document.getElementById('s4num');
+  const s5 = document.getElementById('s5num');
+  const s6 = document.getElementById('s6num');
+  if (showGist) {
+    if (s4 && !s4.classList.contains('done')) s4.textContent = String(n);
+    n++;
+    if (s5 && !s5.classList.contains('done')) s5.textContent = String(n);
+    n++;
+  }
+  if (showRealtime) {
+    if (s6 && !s6.classList.contains('done')) s6.textContent = String(n);
+  }
+
+  // Mark step 3 as done once a mode is chosen
+  const s3 = document.getElementById('s3num');
+  if (s3 && !s3.classList.contains('done')) { s3.className = 'step-num done'; s3.textContent = '✓'; }
+
+  const mc = document.getElementById('modeConfirm');
+  if (mc) mc.style.display = 'block';
+}
+
+document.querySelectorAll('.mode-card').forEach(card => {
+  card.addEventListener('click', () => applySetupMode(card.dataset.mode));
+});
+
+// Load saved mode (or default to 'both')
+_setupMode = localStorage.getItem('setup_mode') || 'both';
+applySetupMode(_setupMode);
 </script>
 </body>
 </html>
