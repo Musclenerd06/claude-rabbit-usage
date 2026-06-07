@@ -126,7 +126,7 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
     <div class="card">
       <h2>Getting Started</h2>
-      <p>Follow these steps once. Takes about 5 minutes.</p>
+      <p>Follow these 5 steps once and you're done forever. Each step takes about a minute. We'll tell you exactly what to click.</p>
     </div>
 
     <div class="card">
@@ -135,7 +135,10 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
         <div class="step-num done" id="s1num">1</div>
         <div class="step-body">
           <div class="step-title">Server is running</div>
-          <div class="step-desc">If you can see this page, you're good.</div>
+          <div class="step-desc">
+            This app runs a small background program on your computer that reads your Claude usage and makes it available to your Rabbit R1.
+            If you can see this page, that program is already running — nothing to do here.
+          </div>
           <div class="step-check" id="s1check">✓ Running on port 5050</div>
         </div>
       </div>
@@ -143,8 +146,11 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="step">
         <div class="step-num" id="s2num">2</div>
         <div class="step-body">
-          <div class="step-title">Claude Code logs found</div>
-          <div class="step-desc">The server needs at least one conversation in Claude Code on this machine to read token data from.</div>
+          <div class="step-title">Claude Code activity detected</div>
+          <div class="step-desc">
+            The server looks for Claude Code conversation logs on your computer to count how many tokens you've used.
+            If this step fails, open Claude Code and have at least one conversation, then come back here.
+          </div>
           <div id="s2check" class="step-check fail">Checking...</div>
         </div>
       </div>
@@ -152,13 +158,16 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="step">
         <div class="step-num" id="s3num">3</div>
         <div class="step-body">
-          <div class="step-title">Create a GitHub token</div>
+          <div class="step-title">Create a free GitHub token</div>
           <div class="step-desc">
-            The token lets the server push your usage data to a Gist — it creates the Gist automatically.<br><br>
-            1. Open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
-            2. Name it anything (e.g. <em>claude-usage</em>)<br>
-            3. Select scope: <strong>gist</strong> only<br>
-            4. Click Generate — copy the token (you only see it once)
+            GitHub is used as a free middleman to store your usage number so your Rabbit R1 can read it from anywhere.
+            You need a free GitHub account — <a href="https://github.com/signup" target="_blank">sign up here if you don't have one</a>.<br><br>
+            <strong>Once you have an account:</strong><br><br>
+            1. Go to <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a><br>
+            2. In the <strong>Note</strong> field, type anything — e.g. <em>claude-usage</em><br>
+            3. Scroll down to <strong>Select scopes</strong> and tick the box next to <strong>gist</strong> only — nothing else<br>
+            4. Scroll to the bottom and click the green <strong>Generate token</strong> button<br>
+            5. Copy the token that appears — it starts with <code>ghp_</code>. <strong>You only see it once, so copy it now.</strong>
           </div>
         </div>
       </div>
@@ -166,10 +175,13 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="step">
         <div class="step-num" id="s4num">4</div>
         <div class="step-body">
-          <div class="step-title">Enter your token</div>
-          <div class="step-desc">Saved to a local <code>.env</code> file. Never shared. A Gist is created for you automatically.</div>
+          <div class="step-title">Paste your token here</div>
+          <div class="step-desc">
+            Paste the token you just copied below and click Connect. We'll verify it and automatically create a private storage file (called a Gist) on GitHub to hold your usage data.
+            Your token is saved only on this computer and is never shared with anyone.
+          </div>
           <div class="field" style="margin-top:12px">
-            <label>GitHub Token</label>
+            <label>GitHub Token (starts with ghp_)</label>
             <input type="password" id="inputToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
           </div>
           <div id="configStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px"></div>
@@ -182,11 +194,16 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
       <div class="step">
         <div class="step-num" id="s5num">5</div>
         <div class="step-body">
-          <div class="step-title">Start Cloudflare Tunnel <span style="font-size:.7rem;background:#22c55e;color:#000;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">REAL-TIME</span></div>
-          <div class="step-desc">Opens a public URL so your Rabbit R1 can fetch live data directly from this server — no Gist lag, no CDN delay. Free, no account needed.</div>
+          <div class="step-title">Open a live connection to your Rabbit R1 <span style="font-size:.7rem;background:#22c55e;color:#000;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">REAL-TIME</span></div>
+          <div class="step-desc">
+            This creates a secure temporary link between your computer and the internet so your Rabbit R1 can get your usage data in real time — like opening a window between your PC and your device.
+            It's completely free, needs no account, and takes about 10 seconds. Click the button below and wait for the green confirmation.
+            <br><br>
+            Once it's active, go to the <strong>QR Codes</strong> tab and scan the green <strong>Live Endpoint</strong> QR inside your Rabbit app to connect it instantly.
+          </div>
           <div id="tunnelStatus" style="font-size:.8rem;color:#6b7280;margin-bottom:12px;min-height:18px">Checking...</div>
           <div class="row" style="margin-top:0">
-            <button class="btn btn-primary" id="btnStartTunnel">▶ Start Tunnel</button>
+            <button class="btn btn-primary" id="btnStartTunnel">▶ Start Live Connection</button>
           </div>
           <div id="tunnelUrl" style="font-size:.74rem;color:#374151;margin-top:10px;font-family:monospace;word-break:break-all"></div>
         </div>
