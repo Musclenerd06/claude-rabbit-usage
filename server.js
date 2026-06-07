@@ -140,6 +140,11 @@ function getDynamicWindowStart(entries) {
 }
 
 function getCurrent5hWindowStart(entries) {
+  // Best source: API-probed reset time (exact, from Anthropic headers)
+  if (_apiResetTimeMs > 0 && _apiResetTimeMs > Date.now()) {
+    return _apiResetTimeMs - WINDOW_5H;
+  }
+
   // Legacy anchor path kept as fallback when no token data available
   if (!entries || entries.length === 0) {
     if (!RESET_ANCHOR_UTC) return Date.now() - WINDOW_5H;
@@ -157,6 +162,10 @@ function getCurrent5hWindowStart(entries) {
 }
 
 function getNext5hWindowReset(entries) {
+  // Best source: API-probed reset time
+  if (_apiResetTimeMs > 0 && _apiResetTimeMs > Date.now()) {
+    return _apiResetTimeMs;
+  }
   return getCurrent5hWindowStart(entries) + WINDOW_5H;
 }
 
@@ -306,6 +315,10 @@ function calcFromUsageEntries(entries) {
 
   const nextReset = getNext5hWindowReset(entries);
 
+  const windowMethod = (_apiResetTimeMs > 0 && _apiResetTimeMs > now)
+    ? 'api_header'
+    : 'dynamic_gap';
+
   return {
     current_percent: currentPct,
     weekly_percent:  weeklyPct,
@@ -318,6 +331,8 @@ function calcFromUsageEntries(entries) {
     max_tokens_7d:   MAX_OUTPUT_TOKENS_7D,
     _debug: {
       method:            'token_usage',
+      window_method:     windowMethod,
+      api_reset_probed:  _apiResetTimeMs > 0 ? new Date(_apiResetTimeMs).toISOString() : null,
       messages_5h:       e5h.length,
       messages_week:     eWeek.length,
       output_tokens_5h:  out5h,
@@ -480,11 +495,82 @@ function pushToGist(data) {
 }
 
 // ─────────────────────────────────────────────
+// API probe — read anthropic-ratelimit-tokens-reset header
+// Fires a 1-token haiku call to get the exact reset timestamp directly
+// from Anthropic. Cost: ~1 output token per probe. Negligible.
+// ─────────────────────────────────────────────
+let _apiResetTimeMs  = 0;              // epoch ms — 0 = unknown
+let _lastProbeAt     = 0;             // prevent probe storms
+const PROBE_INTERVAL = 15 * 60 * 1000; // at most every 15 min
+
+function loadOAuthToken() {
+  const creds = path.join(HOME, '.claude', '.credentials.json');
+  try {
+    const obj = JSON.parse(fs.readFileSync(creds, 'utf8'));
+    return (obj.claudeAiOauth || {}).accessToken || null;
+  } catch (_) { return null; }
+}
+
+function probeApiForResetTime(force) {
+  const now = Date.now();
+  if (!force && now - _lastProbeAt < PROBE_INTERVAL) return;
+  const token = loadOAuthToken();
+  if (!token) {
+    if (DEBUG) console.log('[probe] No OAuth token found — skipping probe');
+    return;
+  }
+  _lastProbeAt = now;
+
+  const body = JSON.stringify({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 1,
+    messages: [{ role: 'user', content: '0' }]
+  });
+
+  const req = https.request({
+    hostname: 'api.anthropic.com',
+    path: '/v1/messages',
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'oauth-2023-11-15',
+      'Content-Length': Buffer.byteLength(body),
+    }
+  }, res => {
+    const resetHeader = res.headers['anthropic-ratelimit-tokens-reset'];
+    if (resetHeader) {
+      const resetMs = new Date(resetHeader).getTime();
+      if (Number.isFinite(resetMs) && resetMs > Date.now()) {
+        const prev = _apiResetTimeMs;
+        _apiResetTimeMs = resetMs;
+        if (prev !== resetMs) {
+          console.log(`[probe] 5h reset calibrated: ${new Date(resetMs).toISOString()}`);
+          collect(); // re-compute % with fresh window boundary
+        }
+      }
+    } else {
+      if (DEBUG) console.log('[probe] No ratelimit-tokens-reset header in response');
+    }
+    res.resume(); // drain body to free socket
+  });
+
+  req.on('error', err => {
+    if (DEBUG) console.log(`[probe] API probe error: ${err.message}`);
+  });
+  req.write(body);
+  req.end();
+}
+
+// ─────────────────────────────────────────────
 // Collector state (in-memory cache)
 // ─────────────────────────────────────────────
 let _latestData = null;
 
 function collect() {
+  probeApiForResetTime(); // no-op if called too recently
+
   const files   = findJsonlFiles(JSONL_GLOBS);
   const entries = parseUsageEntries(files);
 
@@ -736,6 +822,16 @@ ${gistUrl
         }
       });
 
+    } else if (url === '/api/calibrate' && req.method === 'POST') {
+      // Force an immediate API probe to get exact reset time from Anthropic headers
+      _lastProbeAt = 0; // clear throttle so probe fires immediately
+      probeApiForResetTime(true);
+      sendJSON(res, 200, {
+        ok: true,
+        message: 'Probe fired — reset time will update within a few seconds',
+        calibrated_reset: _apiResetTimeMs > 0 ? new Date(_apiResetTimeMs).toISOString() : null,
+      });
+
     } else if (url === '/api/restart' && req.method === 'POST') {
       sendJSON(res, 200, { ok: true, message: 'Restarting...' });
       setTimeout(() => process.exit(42), 300); // 42 = restart signal for start.js
@@ -844,6 +940,7 @@ if (args.includes('--discover')) {
 // Initial collect
 console.log('Claude Code Usage Bridge starting...');
 resolveGithubUser();
+probeApiForResetTime(true); // fire immediately at startup to calibrate window
 collect();
 
 // Poll every SCAN_MS for local/in-memory updates
