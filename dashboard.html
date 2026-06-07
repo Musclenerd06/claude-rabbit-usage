@@ -228,21 +228,23 @@ body{background:#0a0a0a;color:#fff;font-family:-apple-system,BlinkMacSystemFont,
 
     <div class="card" style="margin-bottom:16px">
       <h2>QR Codes</h2>
-      <p>Two QR codes — one to add the app to any Rabbit R1, one to configure the endpoint with your Gist.</p>
+      <p>Scan the <strong>Live Endpoint</strong> QR inside your app (⚙ → Scan QR) for real-time data direct from this server. Use the Gist QR as a fallback only.</p>
     </div>
 
     <div class="qr-grid">
 
       <div class="qr-card">
-        <h3>Add App to Rabbit R1</h3>
-        <p>Scan this with your Rabbit to install the Claude Usage Monitor app.</p>
-        <img class="qr-img" id="appQrImg" src="/app-qr.png" alt="App QR Code" style="width:220px;height:220px;object-fit:contain" />
-        <p style="font-size:.74rem;color:#374151">Scan once per device</p>
+        <h3>Live Endpoint <span style="background:#22c55e;color:#000;font-size:.65rem;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">REAL-TIME</span></h3>
+        <p>Scan inside the app (⚙ → Scan QR) — fetches directly from this server, no CDN delay.</p>
+        <div id="tunnelQrWrap">
+          <div class="qr-not-configured">TUNNEL_URL not set in .env</div>
+        </div>
+        <div class="qr-url" id="tunnelUrlText"></div>
       </div>
 
       <div class="qr-card">
-        <h3>Your Gist URL</h3>
-        <p>Scan this inside the Rabbit app (⚙ → Scan QR) to configure your personal endpoint.</p>
+        <h3>Gist Fallback <span style="background:#6b7280;color:#fff;font-size:.65rem;padding:2px 7px;border-radius:99px;font-weight:700;margin-left:6px">~5 MIN LAG</span></h3>
+        <p>Use only if the tunnel is down. Data may be several minutes behind.</p>
         <div id="gistQrWrap">
           <div class="qr-not-configured">Configure your Gist ID in Setup first</div>
         </div>
@@ -361,7 +363,13 @@ async function loadStatus() {
       ? `${d.log_count} JSONL file(s) found in ~/.claude/projects`
       : 'No log files found — use Claude Code on this machine first';
 
-    // QR tab — gist
+    // QR tab — tunnel (live)
+    if (d.app_url) {
+      const wrap = document.getElementById('tunnelQrWrap');
+      wrap.innerHTML = '<img src="/tunnel-qr.png?t=' + Date.now() + '" style="width:220px;height:220px;border-radius:10px;border:3px solid #22c55e;background:#fff;" alt="Tunnel QR">';
+      document.getElementById('tunnelUrlText').textContent = d.app_url;
+    }
+    // QR tab — gist fallback
     if (d.gist_url && d.gist_url !== _gistUrl) {
       _gistUrl = d.gist_url;
       renderGistQr(d.gist_url);
