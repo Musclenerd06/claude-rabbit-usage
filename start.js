@@ -125,6 +125,12 @@ function shutdown(sig) {
 }
 
 // ── Boot ─────────────────────────────────────────────────────────
+// Kill any leftover cloudflared from a previous session
+try {
+  const { execSync } = require('child_process');
+  execSync('pkill -f "cloudflared tunnel" 2>/dev/null || true', { shell: true });
+} catch (_) {}
+
 // Load .env so TUNNEL_URL etc. are available before first server spawn
 try {
   const envLines = fs.readFileSync(ENV_FILE, 'utf8').split('\n');
